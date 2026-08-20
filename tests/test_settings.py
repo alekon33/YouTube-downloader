@@ -1,6 +1,7 @@
+import json
 from pathlib import Path
 
-from videodownloader.models import AppSettings, Container, Quality, Theme
+from videodownloader.models import AppSettings, Container, Quality
 from videodownloader.settings import AppPaths, SettingsService
 
 
@@ -11,7 +12,6 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         destination=tmp_path / "media",
         quality=Quality.UHD_2160,
         container=Container.MKV,
-        theme=Theme.DARK,
         create_playlist_folder=False,
     )
 
@@ -27,3 +27,28 @@ def test_invalid_settings_fall_back_to_defaults(tmp_path: Path) -> None:
     service.settings_path.write_text("not-json", encoding="utf-8")
 
     assert service.load() == service.defaults()
+
+
+def test_legacy_theme_setting_is_ignored_and_removed_on_save(tmp_path: Path) -> None:
+    paths = AppPaths.from_data_dir(tmp_path / "app", tmp_path / "downloads")
+    service = SettingsService(paths)
+    service.settings_path.parent.mkdir(parents=True)
+    service.settings_path.write_text(
+        json.dumps(
+            {
+                "destination": str(tmp_path / "media"),
+                "quality": Quality.HD_720.value,
+                "container": Container.MKV.value,
+                "theme": "dark",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = service.load()
+    service.save(loaded)
+    persisted = json.loads(service.settings_path.read_text(encoding="utf-8"))
+
+    assert loaded.quality is Quality.HD_720
+    assert loaded.container is Container.MKV
+    assert "theme" not in persisted

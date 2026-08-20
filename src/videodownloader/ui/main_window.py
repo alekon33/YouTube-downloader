@@ -6,10 +6,9 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Slot
+from PySide6.QtCore import Qt, QUrl, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -19,11 +18,13 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QMainWindow,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -39,7 +40,6 @@ from videodownloader.models import (
     JobState,
     MediaItem,
     Quality,
-    Theme,
 )
 from videodownloader.services.tool_updates import update_check_due
 from videodownloader.settings import SettingsService
@@ -47,7 +47,6 @@ from videodownloader.tools.releases import YtDlpUpdate
 from videodownloader.ui.controller import AppController, openable_folder
 from videodownloader.ui.dialogs import PreparationDialog, show_about
 from videodownloader.ui.formatting import format_bytes, format_duration, format_eta
-from videodownloader.ui.theme import apply_theme
 
 _STAGE_TEXT = {
     DownloadStage.ANALYZING: "Анализ…",
@@ -92,25 +91,26 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         self.setWindowTitle("VideoDownloader")
-        self.setMinimumSize(660, 720)
-        self.resize(760, 800)
+        self.setMinimumSize(660, 560)
+        self.resize(820, 720)
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         central = QWidget()
         root = QVBoxLayout(central)
-        root.setContentsMargins(24, 22, 24, 22)
-        root.setSpacing(14)
-        self.setCentralWidget(central)
+        root.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        root.setContentsMargins(20, 18, 20, 18)
+        root.setSpacing(12)
+        self._scroll_area.setWidget(central)
+        self.setCentralWidget(self._scroll_area)
 
-        header = QHBoxLayout()
         title = QLabel("VideoDownloader")
         title.setObjectName("title")
-        header.addWidget(title)
-        header.addStretch()
-        self._theme_combo = QComboBox()
-        self._theme_combo.addItem(self.tr("Системная тема"), Theme.SYSTEM)
-        self._theme_combo.addItem(self.tr("Светлая тема"), Theme.LIGHT)
-        self._theme_combo.addItem(self.tr("Тёмная тема"), Theme.DARK)
-        header.addWidget(self._theme_combo)
-        root.addLayout(header)
+        root.addWidget(title)
 
         link_card = QFrame()
         link_card.setObjectName("card")
@@ -141,8 +141,10 @@ class MainWindow(QMainWindow):
         info_layout.addWidget(self._media_details)
         root.addWidget(self._info_card)
 
-        options = QGroupBox(self.tr("Параметры"))
-        options_layout = QGridLayout(options)
+        self._options_group = QGroupBox(self.tr("Параметры"))
+        options_layout = QGridLayout(self._options_group)
+        options_layout.setColumnStretch(0, 1)
+        options_layout.setColumnStretch(1, 1)
         options_layout.addWidget(QLabel(self.tr("Максимальное качество")), 0, 0)
         options_layout.addWidget(QLabel(self.tr("Контейнер")), 0, 1)
         self._quality = QComboBox()
@@ -162,30 +164,40 @@ class MainWindow(QMainWindow):
         self._browse.setAccessibleName(self.tr("Выбрать папку"))
         folder_row.addWidget(self._browse)
         options_layout.addLayout(folder_row, 3, 0, 1, 2)
-        root.addWidget(options)
-
-        self._playlist_group = QGroupBox(self.tr("Параметры плейлиста"))
-        playlist_layout = QGridLayout(self._playlist_group)
+        self._playlist_options = QWidget(self._options_group)
+        playlist_layout = QGridLayout(self._playlist_options)
+        playlist_layout.setContentsMargins(0, 8, 0, 0)
+        playlist_layout.setHorizontalSpacing(16)
+        playlist_layout.setVerticalSpacing(8)
+        playlist_layout.setColumnStretch(0, 1)
+        playlist_layout.setColumnStretch(1, 1)
         self._number_items = QCheckBox(self.tr("Нумеровать видео"))
         self._playlist_folder = QCheckBox(self.tr("Создать папку с названием плейлиста"))
-        playlist_layout.addWidget(self._number_items, 0, 0, 1, 2)
-        playlist_layout.addWidget(self._playlist_folder, 1, 0, 1, 2)
-        playlist_layout.addWidget(QLabel(self.tr("Диапазон")), 2, 0)
+        playlist_layout.addWidget(self._number_items, 0, 0)
         range_row = QHBoxLayout()
+        range_row.addWidget(QLabel(self.tr("Диапазон:")))
         self._range_start = QSpinBox()
         self._range_start.setRange(1, 999_999)
         self._range_start.setValue(1)
+        self._range_start.setMaximumWidth(110)
         self._range_end = QSpinBox()
         self._range_end.setRange(0, 999_999)
         self._range_end.setSpecialValueText(self.tr("Все"))
+        self._range_end.setMaximumWidth(110)
         range_row.addWidget(self._range_start)
         range_row.addWidget(QLabel("—"))
         range_row.addWidget(self._range_end)
-        playlist_layout.addLayout(range_row, 2, 1)
-        self._archive = QCheckBox(self.tr("Пропускать уже скачанные через archive"))
-        playlist_layout.addWidget(self._archive, 3, 0, 1, 2)
-        self._playlist_group.hide()
-        root.addWidget(self._playlist_group)
+        range_row.addStretch()
+        playlist_layout.addLayout(range_row, 0, 1)
+        playlist_layout.addWidget(self._playlist_folder, 1, 0, 1, 2)
+        self._archive = QCheckBox(self.tr("Пропускать уже скачанные"))
+        self._archive.setToolTip(
+            self.tr("Использовать архив загрузок и не скачивать одинаковые видео повторно")
+        )
+        playlist_layout.addWidget(self._archive, 2, 0, 1, 2)
+        self._playlist_options.hide()
+        options_layout.addWidget(self._playlist_options, 4, 0, 1, 2)
+        root.addWidget(self._options_group)
 
         self._download = QPushButton(self.tr("Скачать"))
         self._download.setMinimumHeight(44)
@@ -200,6 +212,7 @@ class MainWindow(QMainWindow):
         self._status.setObjectName("mediaTitle")
         self._playlist_status = QLabel("")
         self._playlist_status.setObjectName("muted")
+        self._playlist_status.hide()
         status_row.addWidget(self._status)
         status_row.addStretch()
         status_row.addWidget(self._playlist_status)
@@ -250,7 +263,6 @@ class MainWindow(QMainWindow):
         self._download.clicked.connect(self._start_download)
         self._cancel.clicked.connect(self._cancel_download)
         self._open_folder.clicked.connect(self._show_result_folder)
-        self._theme_combo.currentIndexChanged.connect(self._change_theme)
         self._controller.analysis_succeeded.connect(self._analysis_complete)
         self._controller.analysis_failed.connect(self._analysis_failed)
         self._controller.download_progress.connect(self._update_progress)
@@ -267,13 +279,9 @@ class MainWindow(QMainWindow):
         self._folder.setText(str(self._settings.destination))
         self._set_combo_data(self._quality, self._settings.quality)
         self._set_combo_data(self._container, self._settings.container)
-        self._set_combo_data(self._theme_combo, self._settings.theme)
         self._playlist_folder.setChecked(self._settings.create_playlist_folder)
         self._number_items.setChecked(self._settings.number_playlist_items)
         self._archive.setChecked(self._settings.use_download_archive)
-        application = QApplication.instance()
-        if isinstance(application, QApplication):
-            apply_theme(application, self._settings.theme)
 
     @staticmethod
     def _set_combo_data(combo: QComboBox, value: object) -> None:
@@ -286,6 +294,8 @@ class MainWindow(QMainWindow):
         url = self._url.text().strip()
         if not url:
             return
+        self._media = None
+        self._playlist_status.clear()
         self._set_state(JobState.ANALYZING)
         self._status.setText(self.tr("Анализ…"))
         self._media_title.setText(self.tr("Получаем информацию…"))
@@ -309,9 +319,8 @@ class MainWindow(QMainWindow):
                 size=format_bytes(value.estimated_bytes),
             )
         self._media_details.setText(details)
-        self._playlist_group.setVisible(value.is_playlist)
-        self._overall_label.setVisible(value.is_playlist)
-        self._overall_progress.setVisible(value.is_playlist)
+        self._playlist_status.clear()
+        self._overall_progress.setValue(0)
         self._status.setText(self.tr("Готово к скачиванию"))
         self._set_state(JobState.READY)
 
@@ -415,6 +424,11 @@ class MainWindow(QMainWindow):
         analyzing = state is JobState.ANALYZING
         active = state in {JobState.DOWNLOADING, JobState.POST_PROCESSING}
         editable = not analyzing and not active
+        is_playlist = self._media is not None and self._media.is_playlist
+        self._playlist_options.setVisible(is_playlist and editable)
+        self._playlist_status.setVisible(is_playlist and active)
+        self._overall_label.setVisible(is_playlist and active)
+        self._overall_progress.setVisible(is_playlist and active)
         self._url.setEnabled(editable)
         self._analyze.setEnabled(editable and bool(self._url.text().strip()))
         for widget in (
@@ -450,22 +464,12 @@ class MainWindow(QMainWindow):
         log_path = self._controller.paths.logs_dir / "videodownloader.log"
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
 
-    @Slot()
-    def _change_theme(self) -> None:
-        theme = Theme(self._theme_combo.currentData())
-        application = QApplication.instance()
-        if isinstance(application, QApplication):
-            apply_theme(application, theme)
-            self._settings = replace(self._settings, theme=theme)
-            self._settings_service.save(self._settings)
-
     def _persist_settings(self, destination: Path) -> None:
         self._settings = replace(
             self._settings,
             destination=destination,
             quality=Quality(self._quality.currentData()),
             container=Container(self._container.currentData()),
-            theme=Theme(self._theme_combo.currentData()),
             create_playlist_folder=self._playlist_folder.isChecked(),
             number_playlist_items=self._number_items.isChecked(),
             use_download_archive=self._archive.isChecked(),

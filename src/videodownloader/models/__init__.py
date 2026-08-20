@@ -12,7 +12,7 @@ from videodownloader.models.download import (
     PlaylistJob,
     Quality,
 )
-from videodownloader.models.settings import AppSettings, Theme
+from videodownloader.models.settings import AppSettings
 
 __all__ = [
     "AppSettings",
@@ -26,6 +26,4 @@ __all__ = [
     "MediaKind",
     "PlaylistJob",
     "Quality",
-    "Theme",
 ]
-

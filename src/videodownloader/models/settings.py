@@ -3,19 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from videodownloader.models.download import Container, Quality
-
-
-class Theme(StrEnum):
-    """Available interface themes."""
-
-    SYSTEM = "system"
-    LIGHT = "light"
-    DARK = "dark"
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +16,6 @@ class AppSettings:
     destination: Path
     quality: Quality = Quality.FHD_1080
     container: Container = Container.MP4
-    theme: Theme = Theme.SYSTEM
     create_playlist_folder: bool = True
     number_playlist_items: bool = True
     use_download_archive: bool = True
@@ -38,7 +28,6 @@ class AppSettings:
         data["destination"] = str(self.destination)
         data["quality"] = self.quality.value
         data["container"] = self.container.value
-        data["theme"] = self.theme.value
         return data
 
     @classmethod
@@ -50,7 +39,6 @@ class AppSettings:
             destination=Path(data.get("destination") or default_destination),
             quality=Quality(data.get("quality", Quality.FHD_1080.value)),
             container=Container(data.get("container", Container.MP4.value)),
-            theme=Theme(data.get("theme", Theme.SYSTEM.value)),
             create_playlist_folder=bool(data.get("create_playlist_folder", True)),
             number_playlist_items=bool(data.get("number_playlist_items", True)),
             use_download_archive=bool(data.get("use_download_archive", True)),
@@ -58,4 +46,3 @@ class AppSettings:
             update_check_interval_hours=max(1, interval),
             last_yt_dlp_check=data.get("last_yt_dlp_check"),
         )
-
