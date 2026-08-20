@@ -54,3 +54,21 @@ def test_new_playlist_item_resets_stream_stage() -> None:
 
     assert progress is not None
     assert progress.stage is DownloadStage.VIDEO
+
+
+def test_partial_playlist_progress_uses_selected_queue_size() -> None:
+    parser = ProgressParser()
+
+    first = parser.parse(
+        'VDP_PROGRESS\t"downloading"\t500\t1000\tnull\t250.0\t2\t1\t8\t"first.mp4"'
+    )
+    last = parser.parse('VDP_FINISHED\t"C:\\\\Videos\\\\last.mp4"\t8\t8')
+
+    assert first is not None
+    assert first.playlist_index == 1
+    assert first.playlist_count == 8
+    assert first.overall_percent == 6.25
+    assert last is not None
+    assert last.playlist_index == 8
+    assert last.playlist_count == 8
+    assert last.overall_percent == 100

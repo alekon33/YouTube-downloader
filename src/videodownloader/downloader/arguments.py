@@ -6,17 +6,21 @@ from pathlib import Path
 
 from videodownloader.models import Container, CookieBrowser, DownloadJob, MediaItem, Quality
 
+# playlist_index/playlist_count describe the original playlist. The autonumber and
+# n_entries pair describes only the queue selected by --playlist-start/end/items.
 PROGRESS_TEMPLATE = (
     "download:VDP_PROGRESS\t%(progress.status)j\t%(progress.downloaded_bytes)j\t"
     "%(progress.total_bytes)j\t%(progress.total_bytes_estimate)j\t%(progress.speed)j\t"
-    "%(progress.eta)j\t%(info.playlist_index)j\t%(info.playlist_count)j\t"
+    "%(progress.eta)j\t%(info.playlist_autonumber)j\t%(info.n_entries)j\t"
     "%(progress.filename)j"
 )
 POSTPROCESS_TEMPLATE = (
-    "postprocess:VDP_POSTPROCESS\t%(progress.status)j\t%(info.playlist_index)j\t"
-    "%(info.playlist_count)j\t%(progress.postprocessor)j"
+    "postprocess:VDP_POSTPROCESS\t%(progress.status)j\t%(info.playlist_autonumber)j\t"
+    "%(info.n_entries)j\t%(progress.postprocessor)j"
 )
-FINISHED_TEMPLATE = "after_move:VDP_FINISHED\t%(filepath)j\t%(playlist_index)j\t%(playlist_count)j"
+FINISHED_TEMPLATE = (
+    "after_move:VDP_FINISHED\t%(filepath)j\t%(playlist_autonumber)j\t%(n_entries)j"
+)
 
 
 def browser_cookie_arguments(browser: CookieBrowser | None) -> list[str]:

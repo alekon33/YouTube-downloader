@@ -135,7 +135,7 @@ class DownloadOptions:
 
 @dataclass(frozen=True, slots=True)
 class DownloadProgress:
-    """A stable progress snapshot emitted by the download service."""
+    """A stable snapshot whose playlist fields refer to the selected download queue."""
 
     stage: DownloadStage
     percent: float | None = None

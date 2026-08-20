@@ -5,6 +5,11 @@ from videodownloader.downloader import (
     playlist_output_template,
     quality_expression,
 )
+from videodownloader.downloader.arguments import (
+    FINISHED_TEMPLATE,
+    POSTPROCESS_TEMPLATE,
+    PROGRESS_TEMPLATE,
+)
 from videodownloader.models import (
     Container,
     CookieBrowser,
@@ -57,6 +62,23 @@ def test_playlist_arguments_include_range_archive_and_folder(tmp_path: Path) -> 
     assert arguments[arguments.index("--playlist-end") + 1] == "12"
     assert "--download-archive" in arguments
     assert "%(playlist_title)s/%(playlist_index)03d - %(title)s.%(ext)s" in arguments
+
+
+def test_playlist_progress_templates_use_selected_download_queue() -> None:
+    assert "%(info.playlist_autonumber)j" in PROGRESS_TEMPLATE
+    assert "%(info.n_entries)j" in PROGRESS_TEMPLATE
+    assert "%(info.playlist_index)j" not in PROGRESS_TEMPLATE
+    assert "%(info.playlist_count)j" not in PROGRESS_TEMPLATE
+
+    assert "%(info.playlist_autonumber)j" in POSTPROCESS_TEMPLATE
+    assert "%(info.n_entries)j" in POSTPROCESS_TEMPLATE
+    assert "%(info.playlist_index)j" not in POSTPROCESS_TEMPLATE
+    assert "%(info.playlist_count)j" not in POSTPROCESS_TEMPLATE
+
+    assert "%(playlist_autonumber)j" in FINISHED_TEMPLATE
+    assert "%(n_entries)j" in FINISHED_TEMPLATE
+    assert "%(playlist_index)j" not in FINISHED_TEMPLATE
+    assert "%(playlist_count)j" not in FINISHED_TEMPLATE
 
 
 def test_selected_playlist_indices_override_range(tmp_path: Path) -> None:
