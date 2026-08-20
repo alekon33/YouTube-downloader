@@ -15,13 +15,19 @@ from videodownloader.models import MediaItem
 class YtDlpService:
     """Analyze media through a standalone yt-dlp child process."""
 
-    def __init__(self, executable: Path, ffmpeg_directory: Path) -> None:
+    def __init__(
+        self,
+        executable: Path,
+        ffmpeg_directory: Path,
+        javascript_runtime: Path | None = None,
+    ) -> None:
         self.executable = executable
         self.ffmpeg_directory = ffmpeg_directory
+        self.javascript_runtime = javascript_runtime
 
     def analysis_arguments(self, url: str) -> list[str]:
         self._validate_url(url)
-        return [
+        arguments = [
             str(self.executable),
             "--ignore-config",
             "--no-warnings",
@@ -29,9 +35,18 @@ class YtDlpService:
             "--skip-download",
             "--ffmpeg-location",
             str(self.ffmpeg_directory),
-            "--",
-            url,
         ]
+        if self.javascript_runtime is not None:
+            arguments.extend(
+                [
+                    "--js-runtimes",
+                    f"deno:{self.javascript_runtime}",
+                    "--remote-components",
+                    "ejs:github",
+                ]
+            )
+        arguments.extend(["--", url])
+        return arguments
 
     def analyze(self, url: str, timeout_seconds: int = 120) -> MediaItem:
         if not self.executable.is_file():
@@ -82,4 +97,3 @@ class YtDlpService:
                 "Введите корректную ссылку, начинающуюся с http:// или https://.",
                 "Invalid media URL",
             )
-

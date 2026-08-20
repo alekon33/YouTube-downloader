@@ -57,6 +57,20 @@ Gyan.dev currently describes its static 64-bit builds as GPLv3. Anyone who
 redistributes the downloaded binaries separately must review the exact build's
 license and corresponding-source requirements.
 
+## Deno
+
+`deno.exe` is not stored in this repository and is not embedded in the
+VideoDownloader installer. On first run, the application downloads a pinned
+official Windows release, verifies its SHA-256 and supplies it to yt-dlp as a
+separate JavaScript runtime for site extraction challenges.
+
+- Project and source: https://github.com/denoland/deno
+- Releases: https://github.com/denoland/deno/releases
+- License: https://github.com/denoland/deno/blob/main/LICENSE.md
+
+Deno is distributed under the MIT License. Refer to the exact release and its
+third-party notices when redistributing the downloaded binary independently.
+
 ## Nuitka
 
 The Nuitka compiler is a build-time tool under AGPL-3.0 and is not installed as

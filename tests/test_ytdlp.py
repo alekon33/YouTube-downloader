@@ -9,7 +9,8 @@ from videodownloader.downloader import YtDlpService
 
 
 def test_analysis_arguments_are_a_safe_list(tmp_path: Path) -> None:
-    service = YtDlpService(tmp_path / "yt-dlp.exe", tmp_path)
+    deno = tmp_path / "deno.exe"
+    service = YtDlpService(tmp_path / "yt-dlp.exe", tmp_path, deno)
 
     arguments = service.analysis_arguments("https://example.test/watch?v=1&list=2")
 
@@ -17,6 +18,8 @@ def test_analysis_arguments_are_a_safe_list(tmp_path: Path) -> None:
     assert arguments[-2] == "--"
     assert arguments[-1] == "https://example.test/watch?v=1&list=2"
     assert "--dump-single-json" in arguments
+    assert arguments[arguments.index("--js-runtimes") + 1] == f"deno:{deno}"
+    assert arguments[arguments.index("--remote-components") + 1] == "ejs:github"
 
 
 def test_analyze_parses_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

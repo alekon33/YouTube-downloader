@@ -57,7 +57,11 @@ class AppController(QObject):
         self._launch(worker, (worker.succeeded, worker.failed))
 
     def analyze(self, url: str) -> None:
-        service = YtDlpService(self.tools.yt_dlp_path, self.tools.tools_dir)
+        service = YtDlpService(
+            self.tools.yt_dlp_path,
+            self.tools.tools_dir,
+            self.tools.deno_path,
+        )
         worker = AnalysisWorker(service, url)
         worker.succeeded.connect(self.analysis_succeeded)
         worker.failed.connect(self.analysis_failed)
@@ -88,7 +92,11 @@ class AppController(QObject):
             job = PlaylistJob(media=media, options=options)
         else:
             job = DownloadJob(media=media, options=options)
-        executor = DownloadExecutor(self.tools.yt_dlp_path, self.tools.tools_dir)
+        executor = DownloadExecutor(
+            self.tools.yt_dlp_path,
+            self.tools.tools_dir,
+            self.tools.deno_path,
+        )
         worker = DownloadWorker(executor, job)
         self._download_worker = worker
         worker.progress.connect(self.download_progress)

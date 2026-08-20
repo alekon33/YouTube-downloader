@@ -13,6 +13,8 @@ AppController + background workers
             │ argument vector, no shell
             ▼
         yt-dlp.exe ─────── ffmpeg.exe / ffprobe.exe
+             │
+          deno.exe
 ```
 
 ## Слои

@@ -22,9 +22,15 @@ ProgressCallback = Callable[[DownloadProgress], None]
 class DownloadExecutor:
     """Run one yt-dlp job while draining both pipes and supporting cancellation."""
 
-    def __init__(self, executable: Path, ffmpeg_directory: Path) -> None:
+    def __init__(
+        self,
+        executable: Path,
+        ffmpeg_directory: Path,
+        javascript_runtime: Path | None = None,
+    ) -> None:
         self.executable = executable
         self.ffmpeg_directory = ffmpeg_directory
+        self.javascript_runtime = javascript_runtime
         self._process: subprocess.Popen[str] | None = None
         self._lock = threading.Lock()
         self._cancel_requested = threading.Event()
@@ -41,7 +47,12 @@ class DownloadExecutor:
     ) -> Path | None:
         """Block the calling worker thread until the job completes or is cancelled."""
 
-        arguments = build_download_arguments(self.executable, self.ffmpeg_directory, job)
+        arguments = build_download_arguments(
+            self.executable,
+            self.ffmpeg_directory,
+            job,
+            self.javascript_runtime,
+        )
         parser = ProgressParser()
         stderr_tail: deque[str] = deque(maxlen=80)
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(

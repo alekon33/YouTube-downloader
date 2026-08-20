@@ -19,7 +19,7 @@ from videodownloader.ui.controller import AppController
 
 
 class PreparationDialog(QDialog):
-    """Visible first-run flow for acquiring yt-dlp and FFmpeg."""
+    """Visible first-run flow for acquiring yt-dlp, FFmpeg, and Deno."""
 
     def __init__(self, controller: AppController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -28,7 +28,7 @@ class PreparationDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
-        self._title = QLabel(self.tr("Подготавливаем yt-dlp и FFmpeg"))
+        self._title = QLabel(self.tr("Подготавливаем yt-dlp, FFmpeg и Deno"))
         self._title.setObjectName("mediaTitle")
         layout.addWidget(self._title)
         layout.addWidget(

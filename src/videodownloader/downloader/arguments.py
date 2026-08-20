@@ -43,6 +43,7 @@ def build_download_arguments(
     executable: Path,
     ffmpeg_directory: Path,
     job: DownloadJob,
+    javascript_runtime: Path | None = None,
 ) -> list[str]:
     """Translate a job into an argument vector; the UI never handles CLI details."""
 
@@ -102,6 +103,15 @@ def build_download_arguments(
     else:
         arguments.append("--no-playlist")
 
+    if javascript_runtime is not None:
+        arguments.extend(
+            [
+                "--js-runtimes",
+                f"deno:{javascript_runtime}",
+                "--remote-components",
+                "ejs:github",
+            ]
+        )
+
     arguments.extend(["--", media.source_url])
     return arguments
-

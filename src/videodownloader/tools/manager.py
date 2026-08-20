@@ -48,7 +48,7 @@ def file_sha256(path: Path) -> str:
 
 
 class ToolManager:
-    """Own trusted paths and lifecycle operations for yt-dlp and FFmpeg."""
+    """Own trusted paths and lifecycle operations for yt-dlp, FFmpeg, and Deno."""
 
     def __init__(self, tools_dir: Path, manifest: ToolManifest | None = None) -> None:
         self.tools_dir = tools_dir
@@ -67,6 +67,10 @@ class ToolManager:
     def ffprobe_path(self) -> Path:
         return self.tools_dir / "ffprobe.exe"
 
+    @property
+    def deno_path(self) -> Path:
+        return self.tools_dir / "deno.exe"
+
     def status(self) -> dict[str, ToolStatus]:
         installed_state = self._load_installed_state()
         yt_dlp_exists = self.yt_dlp_path.is_file()
@@ -83,6 +87,10 @@ class ToolManager:
                 self.ffprobe_path, installed_state.get("ffmpeg", {}).get("ffprobe_sha256")
             )
         )
+        deno_exists = self.deno_path.is_file()
+        deno_valid = deno_exists and self._matches_record(
+            self.deno_path, installed_state.get("deno", {}).get("sha256")
+        )
         return {
             "yt-dlp": ToolStatus(
                 "yt-dlp",
@@ -97,6 +105,13 @@ class ToolManager:
                 ffmpeg_exists,
                 self._version(self.ffmpeg_path, "-version") if ffmpeg_valid else None,
                 ffmpeg_valid,
+            ),
+            "deno": ToolStatus(
+                "deno",
+                self.deno_path,
+                deno_exists,
+                self._version(self.deno_path, "--version") if deno_valid else None,
+                deno_valid,
             ),
         }
 
@@ -116,6 +131,7 @@ class ToolManager:
     def install_all(self, progress: ProgressCallback | None = None) -> None:
         self.install("yt-dlp", progress)
         self.install("ffmpeg", progress)
+        self.install("deno", progress)
 
     def ensure_all(self, progress: ProgressCallback | None = None) -> None:
         """Install only missing or invalid tools, preserving newer valid versions."""
@@ -144,7 +160,7 @@ class ToolManager:
                     "Проверка целостности компонента не пройдена.",
                     f"SHA-256 mismatch for {asset.name}",
                 )
-            if asset.archive:
+            if asset.name == "ffmpeg" and asset.archive:
                 self._install_ffmpeg_archive(temporary)
                 self._record_install(
                     "ffmpeg",
@@ -154,7 +170,13 @@ class ToolManager:
                         "ffprobe_sha256": file_sha256(self.ffprobe_path),
                     },
                 )
-            else:
+            elif asset.name == "deno" and asset.archive:
+                self._install_deno_archive(temporary)
+                self._record_install(
+                    "deno",
+                    {"version": asset.version, "sha256": file_sha256(self.deno_path)},
+                )
+            elif asset.name == "yt-dlp" and not asset.archive:
                 self._atomic_replace(
                     temporary,
                     self.yt_dlp_path,
@@ -164,6 +186,8 @@ class ToolManager:
                     "yt-dlp",
                     {"version": asset.version, "sha256": file_sha256(self.yt_dlp_path)},
                 )
+            else:
+                raise ValueError(f"Unsupported tool artifact: {asset.name}")
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -241,6 +265,34 @@ class ToolManager:
                         self._version(self.ffmpeg_path, "-version") is not None
                         and self._version(self.ffprobe_path, "-version") is not None
                     ),
+                )
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
+
+    def _install_deno_archive(self, archive: Path) -> None:
+        with zipfile.ZipFile(archive) as bundle:
+            deno_member = next(
+                (
+                    item
+                    for item in bundle.namelist()
+                    if Path(item).name.casefold() == "deno.exe"
+                ),
+                None,
+            )
+            if not deno_member:
+                raise ToolUnavailableError(
+                    "Архив Deno имеет неожиданный формат.",
+                    "deno.exe is missing from the archive",
+                )
+            staging = Path(tempfile.mkdtemp(prefix="deno-", dir=self.tools_dir))
+            try:
+                staged_deno = staging / "deno.exe"
+                with bundle.open(deno_member) as source, staged_deno.open("wb") as target:
+                    shutil.copyfileobj(source, target)
+                self._atomic_replace(
+                    staged_deno,
+                    self.deno_path,
+                    validator=lambda: self._version(self.deno_path, "--version") is not None,
                 )
             finally:
                 shutil.rmtree(staging, ignore_errors=True)

@@ -1,4 +1,5 @@
 import hashlib
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,21 @@ def test_tool_manager_uses_private_absolute_paths(tmp_path: Path) -> None:
     assert manager.yt_dlp_path == tmp_path.resolve() / "yt-dlp.exe"
     assert manager.ffmpeg_path == tmp_path.resolve() / "ffmpeg.exe"
     assert manager.ffprobe_path == tmp_path.resolve() / "ffprobe.exe"
+    assert manager.deno_path == tmp_path.resolve() / "deno.exe"
+
+
+def test_deno_archive_is_extracted_and_validated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = ToolManager(tmp_path)
+    archive = tmp_path / "deno.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("deno.exe", b"deno executable")
+    monkeypatch.setattr(manager, "_version", lambda executable, argument: "deno 2.9.5")
+
+    manager._install_deno_archive(archive)
+
+    assert manager.deno_path.read_bytes() == b"deno executable"
 
 
 def test_ensure_all_preserves_valid_newer_tool(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

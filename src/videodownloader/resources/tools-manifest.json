@@ -14,7 +14,13 @@
       "sha256": "fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9",
       "architecture": "x86_64",
       "archive": true
+    },
+    "deno": {
+      "version": "2.9.5",
+      "url": "https://github.com/denoland/deno/releases/download/v2.9.5/deno-x86_64-pc-windows-msvc.zip",
+      "sha256": "171efab55ac6b9881fd53ee4c20f8bf3bb1340ffc618483746909014db12216a",
+      "architecture": "x86_64",
+      "archive": true
     }
   }
 }
-

@@ -71,3 +71,13 @@ def test_selected_playlist_indices_override_range(tmp_path: Path) -> None:
     assert arguments[arguments.index("--playlist-items") + 1] == "1,3,9"
     assert "--playlist-start" not in arguments
 
+
+def test_download_arguments_use_managed_deno_runtime(tmp_path: Path) -> None:
+    media = MediaItem("https://example.test/video", "Video", MediaKind.VIDEO)
+    job = DownloadJob(media=media, options=DownloadOptions(destination=tmp_path))
+    deno = tmp_path / "deno.exe"
+
+    arguments = build_download_arguments(tmp_path / "yt-dlp.exe", tmp_path, job, deno)
+
+    assert arguments[arguments.index("--js-runtimes") + 1] == f"deno:{deno}"
+    assert arguments[arguments.index("--remote-components") + 1] == "ejs:github"
