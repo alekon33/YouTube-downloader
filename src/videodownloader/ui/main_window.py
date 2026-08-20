@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, Qt, QUrl, Slot
+from PySide6.QtCore import QElapsedTimer, QSignalBlocker, Qt, QTimer, QUrl, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -77,17 +77,17 @@ class MainWindow(QMainWindow):
         self._media: MediaItem | None = None
         self._result_folder = self._settings.destination
         self._manual_update_check = False
+        self._analysis_elapsed = QElapsedTimer()
+        self._analysis_timer = QTimer(self)
+        self._analysis_timer.setInterval(1000)
+        self._analysis_timer.timeout.connect(self._update_analysis_elapsed)
         self._build_ui()
         self._connect_signals()
         self._load_settings()
         self._set_state(JobState.IDLE)
         if auto_prepare and not controller.tools_available():
-            from PySide6.QtCore import QTimer
-
             QTimer.singleShot(0, self._show_preparation)
         elif auto_prepare and update_check_due(self._settings):
-            from PySide6.QtCore import QTimer
-
             QTimer.singleShot(1200, self._check_updates)
 
     def _build_ui(self) -> None:
@@ -321,6 +321,7 @@ class MainWindow(QMainWindow):
             return
         self._media = None
         self._playlist_status.clear()
+        self._start_analysis_progress()
         self._set_state(JobState.ANALYZING)
         self._status.setText(self.tr("Анализ…"))
         self._media_title.setText(self.tr("Получаем информацию…"))
@@ -328,6 +329,7 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _analysis_complete(self, value: object) -> None:
+        self._stop_analysis_progress()
         if not isinstance(value, MediaItem):
             self._analysis_failed(VideoDownloaderError("Получены некорректные данные."))
             return
@@ -351,6 +353,7 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _analysis_failed(self, value: object) -> None:
+        self._stop_analysis_progress()
         error = self._coerce_error(value, "Не удалось получить информацию о видео.")
         self._media = None
         self._media_title.setText(self.tr("Ссылка не проанализирована"))
@@ -359,6 +362,32 @@ class MainWindow(QMainWindow):
         self._show_error(error)
         self._state.reset()
         self._refresh_controls()
+
+    def _start_analysis_progress(self) -> None:
+        """Show honest activity feedback while yt-dlp analyzes an unknown workload."""
+
+        self._current_progress.setRange(0, 0)
+        self._current_progress.setTextVisible(False)
+        self._analysis_elapsed.start()
+        self._telemetry.setText(self.tr("Анализ выполняется · прошло 0:00"))
+        self._analysis_timer.start()
+
+    def _stop_analysis_progress(self) -> None:
+        self._analysis_timer.stop()
+        self._analysis_elapsed.invalidate()
+        self._current_progress.setRange(0, 100)
+        self._current_progress.setValue(0)
+        self._current_progress.setTextVisible(True)
+        self._telemetry.setText("—")
+
+    @Slot()
+    def _update_analysis_elapsed(self) -> None:
+        if self._state.state is not JobState.ANALYZING or not self._analysis_elapsed.isValid():
+            return
+        elapsed = format_duration(self._analysis_elapsed.elapsed() // 1000)
+        self._telemetry.setText(
+            self.tr("Анализ выполняется · прошло {elapsed}").format(elapsed=elapsed)
+        )
 
     @Slot()
     def _start_download(self) -> None:
