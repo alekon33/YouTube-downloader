@@ -37,6 +37,8 @@ class YtDlpService:
             "--no-warnings",
             "--dump-single-json",
             "--skip-download",
+            "--flat-playlist",
+            "--no-playlist",
             "--ffmpeg-location",
             str(self.ffmpeg_directory),
         ]

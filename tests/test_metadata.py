@@ -42,3 +42,22 @@ def test_parse_playlist_metadata_preserves_entries() -> None:
     assert item.item_count == 2
     assert [entry.title for entry in item.entries] == ["First", "Second"]
 
+
+def test_parse_flat_playlist_metadata_without_video_formats() -> None:
+    item = parse_metadata(
+        {
+            "_type": "playlist",
+            "id": "list",
+            "title": "Course",
+            "playlist_count": 20,
+            "entries": [
+                {"id": "one", "title": "First", "url": "https://example.test/one"},
+                {"id": "two", "title": "Second", "url": "https://example.test/two"},
+            ],
+        },
+        "https://example.test/list",
+    )
+
+    assert item.kind is MediaKind.PLAYLIST
+    assert item.item_count == 20
+    assert [entry.available_heights for entry in item.entries] == [(), ()]

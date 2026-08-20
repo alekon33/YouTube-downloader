@@ -24,6 +24,8 @@ def test_analysis_arguments_are_a_safe_list(tmp_path: Path) -> None:
     assert arguments[-2] == "--"
     assert arguments[-1] == "https://example.test/watch?v=1&list=2"
     assert "--dump-single-json" in arguments
+    assert "--flat-playlist" in arguments
+    assert "--no-playlist" in arguments
     assert arguments[arguments.index("--js-runtimes") + 1] == f"deno:{deno}"
     assert arguments[arguments.index("--remote-components") + 1] == "ejs:github"
     assert arguments[arguments.index("--cookies-from-browser") + 1] == "firefox"
