@@ -101,13 +101,25 @@ class DownloadExecutor:
         return parser.final_path
 
     def cancel(self) -> None:
-        """Terminate yt-dlp and its FFmpeg descendants without invoking a shell."""
+        """Request cancellation without blocking the Qt main thread."""
 
+        already_requested = self._cancel_requested.is_set()
         self._cancel_requested.set()
         with self._lock:
             process = self._process
-        if process is None or process.poll() is not None:
+        if process is None or process.poll() is not None or already_requested:
             return
+        threading.Thread(
+            target=self._terminate_process_tree,
+            args=(process,),
+            name="yt-dlp-cancel",
+            daemon=True,
+        ).start()
+
+    @staticmethod
+    def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+        """Terminate yt-dlp and its FFmpeg descendants without invoking a shell."""
+
         if os.name == "nt":
             taskkill = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "taskkill.exe"
             subprocess.run(
