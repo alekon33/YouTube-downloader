@@ -7,6 +7,7 @@ from videodownloader.downloader import (
 )
 from videodownloader.models import (
     Container,
+    CookieBrowser,
     DownloadJob,
     DownloadOptions,
     MediaItem,
@@ -81,3 +82,18 @@ def test_download_arguments_use_managed_deno_runtime(tmp_path: Path) -> None:
 
     assert arguments[arguments.index("--js-runtimes") + 1] == f"deno:{deno}"
     assert arguments[arguments.index("--remote-components") + 1] == "ejs:github"
+
+
+def test_download_arguments_use_explicit_browser_cookies(tmp_path: Path) -> None:
+    media = MediaItem("https://example.test/video", "Video", MediaKind.VIDEO)
+    job = DownloadJob(
+        media=media,
+        options=DownloadOptions(
+            destination=tmp_path,
+            cookie_browser=CookieBrowser.EDGE,
+        ),
+    )
+
+    arguments = build_download_arguments(tmp_path / "yt-dlp.exe", tmp_path, job)
+
+    assert arguments[arguments.index("--cookies-from-browser") + 1] == "edge"

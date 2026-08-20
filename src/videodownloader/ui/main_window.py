@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, Slot
+from PySide6.QtCore import QSignalBlocker, Qt, QUrl, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -34,6 +34,7 @@ from videodownloader.core.exceptions import VideoDownloaderError
 from videodownloader.core.state import AppStateMachine
 from videodownloader.models import (
     Container,
+    CookieBrowser,
     DownloadOptions,
     DownloadProgress,
     DownloadStage,
@@ -164,6 +165,23 @@ class MainWindow(QMainWindow):
         self._browse.setAccessibleName(self.tr("Выбрать папку"))
         folder_row.addWidget(self._browse)
         options_layout.addLayout(folder_row, 3, 0, 1, 2)
+        options_layout.addWidget(
+            QLabel(self.tr("Авторизация YouTube (если требуется)")), 4, 0, 1, 2
+        )
+        self._cookie_browser = QComboBox()
+        self._cookie_browser.addItem(self.tr("Без авторизации"), None)
+        for browser in CookieBrowser:
+            label = browser.label
+            if browser is CookieBrowser.FIREFOX:
+                label = self.tr("{browser} (рекомендуется)").format(browser=label)
+            self._cookie_browser.addItem(label, browser)
+        self._cookie_browser.setToolTip(
+            self.tr(
+                "Использовать только при запросе авторизации. yt-dlp прочитает cookies "
+                "выбранного браузера; VideoDownloader не сохраняет их."
+            )
+        )
+        options_layout.addWidget(self._cookie_browser, 5, 0, 1, 2)
         self._playlist_options = QWidget(self._options_group)
         playlist_layout = QGridLayout(self._playlist_options)
         playlist_layout.setContentsMargins(0, 8, 0, 0)
@@ -196,7 +214,7 @@ class MainWindow(QMainWindow):
         )
         playlist_layout.addWidget(self._archive, 2, 0, 1, 2)
         self._playlist_options.hide()
-        options_layout.addWidget(self._playlist_options, 4, 0, 1, 2)
+        options_layout.addWidget(self._playlist_options, 6, 0, 1, 2)
         root.addWidget(self._options_group)
 
         self._download = QPushButton(self.tr("Скачать"))
@@ -263,6 +281,7 @@ class MainWindow(QMainWindow):
         self._download.clicked.connect(self._start_download)
         self._cancel.clicked.connect(self._cancel_download)
         self._open_folder.clicked.connect(self._show_result_folder)
+        self._cookie_browser.currentIndexChanged.connect(self._cookie_browser_changed)
         self._controller.analysis_succeeded.connect(self._analysis_complete)
         self._controller.analysis_failed.connect(self._analysis_failed)
         self._controller.download_progress.connect(self._update_progress)
@@ -279,6 +298,12 @@ class MainWindow(QMainWindow):
         self._folder.setText(str(self._settings.destination))
         self._set_combo_data(self._quality, self._settings.quality)
         self._set_combo_data(self._container, self._settings.container)
+        blocker = QSignalBlocker(self._cookie_browser)
+        if self._settings.cookie_browser is None:
+            self._cookie_browser.setCurrentIndex(0)
+        else:
+            self._set_combo_data(self._cookie_browser, self._settings.cookie_browser)
+        del blocker
         self._playlist_folder.setChecked(self._settings.create_playlist_folder)
         self._number_items.setChecked(self._settings.number_playlist_items)
         self._archive.setChecked(self._settings.use_download_archive)
@@ -299,7 +324,7 @@ class MainWindow(QMainWindow):
         self._set_state(JobState.ANALYZING)
         self._status.setText(self.tr("Анализ…"))
         self._media_title.setText(self.tr("Получаем информацию…"))
-        self._controller.analyze(url)
+        self._controller.analyze(url, self._selected_cookie_browser())
 
     @Slot(object)
     def _analysis_complete(self, value: object) -> None:
@@ -346,6 +371,7 @@ class MainWindow(QMainWindow):
                 destination=destination,
                 quality=Quality(self._quality.currentData()),
                 container=Container(self._container.currentData()),
+                cookie_browser=self._selected_cookie_browser(),
                 playlist_start=self._range_start.value() if self._media.is_playlist else None,
                 playlist_end=(self._range_end.value() or None) if self._media.is_playlist else None,
                 create_playlist_folder=self._playlist_folder.isChecked(),
@@ -436,6 +462,7 @@ class MainWindow(QMainWindow):
             self._container,
             self._folder,
             self._browse,
+            self._cookie_browser,
             self._number_items,
             self._playlist_folder,
             self._range_start,
@@ -464,12 +491,44 @@ class MainWindow(QMainWindow):
         log_path = self._controller.paths.logs_dir / "videodownloader.log"
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
 
+    def _selected_cookie_browser(self) -> CookieBrowser | None:
+        value = self._cookie_browser.currentData()
+        try:
+            return CookieBrowser(str(value)) if value is not None else None
+        except ValueError:
+            return None
+
+    @Slot()
+    def _cookie_browser_changed(self) -> None:
+        browser = self._selected_cookie_browser()
+        if browser is not None:
+            answer = QMessageBox.warning(
+                self,
+                self.tr("Использовать cookies браузера?"),
+                self.tr(
+                    "yt-dlp прочитает cookies из {browser} только во время анализа и "
+                    "загрузки. VideoDownloader не сохраняет их. Использование аккаунта "
+                    "для автоматических загрузок может привести к его временной или "
+                    "постоянной блокировке. Продолжить?"
+                ).format(browser=browser.label),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                blocker = QSignalBlocker(self._cookie_browser)
+                self._cookie_browser.setCurrentIndex(0)
+                del blocker
+                browser = None
+        self._settings = replace(self._settings, cookie_browser=browser)
+        self._settings_service.save(self._settings)
+
     def _persist_settings(self, destination: Path) -> None:
         self._settings = replace(
             self._settings,
             destination=destination,
             quality=Quality(self._quality.currentData()),
             container=Container(self._container.currentData()),
+            cookie_browser=self._selected_cookie_browser(),
             create_playlist_folder=self._playlist_folder.isChecked(),
             number_playlist_items=self._number_items.isChecked(),
             use_download_archive=self._archive.isChecked(),

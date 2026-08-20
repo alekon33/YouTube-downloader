@@ -7,7 +7,13 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QThread, Signal, SignalInstance
 
 from videodownloader.downloader import DownloadExecutor, YtDlpService
-from videodownloader.models import DownloadJob, DownloadOptions, MediaItem, PlaylistJob
+from videodownloader.models import (
+    CookieBrowser,
+    DownloadJob,
+    DownloadOptions,
+    MediaItem,
+    PlaylistJob,
+)
 from videodownloader.settings import AppPaths
 from videodownloader.tools import ToolManager
 from videodownloader.tools.releases import YtDlpUpdate
@@ -56,11 +62,12 @@ class AppController(QObject):
         worker.failed.connect(self.tools_failed)
         self._launch(worker, (worker.succeeded, worker.failed))
 
-    def analyze(self, url: str) -> None:
+    def analyze(self, url: str, cookie_browser: CookieBrowser | None = None) -> None:
         service = YtDlpService(
             self.tools.yt_dlp_path,
             self.tools.tools_dir,
-            self.tools.deno_path,
+            javascript_runtime=self.tools.deno_path,
+            cookie_browser=cookie_browser,
         )
         worker = AnalysisWorker(service, url)
         worker.succeeded.connect(self.analysis_succeeded)

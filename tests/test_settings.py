@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from videodownloader.models import AppSettings, Container, Quality
+from videodownloader.models import AppSettings, Container, CookieBrowser, Quality
 from videodownloader.settings import AppPaths, SettingsService
 
 
@@ -12,6 +12,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         destination=tmp_path / "media",
         quality=Quality.UHD_2160,
         container=Container.MKV,
+        cookie_browser=CookieBrowser.FIREFOX,
         create_playlist_folder=False,
     )
 
@@ -52,3 +53,18 @@ def test_legacy_theme_setting_is_ignored_and_removed_on_save(tmp_path: Path) -> 
     assert loaded.quality is Quality.HD_720
     assert loaded.container is Container.MKV
     assert "theme" not in persisted
+
+
+def test_unknown_cookie_browser_does_not_reset_other_settings(tmp_path: Path) -> None:
+    loaded = AppSettings.from_dict(
+        {
+            "quality": Quality.HD_720.value,
+            "container": Container.MKV.value,
+            "cookie_browser": "unknown-browser",
+        },
+        tmp_path,
+    )
+
+    assert loaded.quality is Quality.HD_720
+    assert loaded.container is Container.MKV
+    assert loaded.cookie_browser is None

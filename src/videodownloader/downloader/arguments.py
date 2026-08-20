@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from videodownloader.models import Container, DownloadJob, MediaItem, Quality
+from videodownloader.models import Container, CookieBrowser, DownloadJob, MediaItem, Quality
 
 PROGRESS_TEMPLATE = (
     "download:VDP_PROGRESS\t%(progress.status)j\t%(progress.downloaded_bytes)j\t"
@@ -17,6 +17,12 @@ POSTPROCESS_TEMPLATE = (
     "%(info.playlist_count)j\t%(progress.postprocessor)j"
 )
 FINISHED_TEMPLATE = "after_move:VDP_FINISHED\t%(filepath)j\t%(playlist_index)j\t%(playlist_count)j"
+
+
+def browser_cookie_arguments(browser: CookieBrowser | None) -> list[str]:
+    """Return an explicit opt-in argument for reading cookies from a browser."""
+
+    return ["--cookies-from-browser", browser.value] if browser is not None else []
 
 
 def quality_expression(quality: Quality, container: Container) -> str:
@@ -112,6 +118,8 @@ def build_download_arguments(
                 "ejs:github",
             ]
         )
+
+    arguments.extend(browser_cookie_arguments(options.cookie_browser))
 
     arguments.extend(["--", media.source_url])
     return arguments

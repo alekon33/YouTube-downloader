@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from videodownloader.models.download import Container, Quality
+from videodownloader.models.download import Container, CookieBrowser, Quality
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +16,7 @@ class AppSettings:
     destination: Path
     quality: Quality = Quality.FHD_1080
     container: Container = Container.MP4
+    cookie_browser: CookieBrowser | None = None
     create_playlist_folder: bool = True
     number_playlist_items: bool = True
     use_download_archive: bool = True
@@ -28,6 +29,9 @@ class AppSettings:
         data["destination"] = str(self.destination)
         data["quality"] = self.quality.value
         data["container"] = self.container.value
+        data["cookie_browser"] = (
+            self.cookie_browser.value if self.cookie_browser is not None else None
+        )
         return data
 
     @classmethod
@@ -35,10 +39,18 @@ class AppSettings:
         """Load known values while safely ignoring settings from newer versions."""
 
         interval = int(data.get("update_check_interval_hours", 24))
+        raw_cookie_browser = data.get("cookie_browser")
+        try:
+            cookie_browser = (
+                CookieBrowser(raw_cookie_browser) if isinstance(raw_cookie_browser, str) else None
+            )
+        except ValueError:
+            cookie_browser = None
         return cls(
             destination=Path(data.get("destination") or default_destination),
             quality=Quality(data.get("quality", Quality.FHD_1080.value)),
             container=Container(data.get("container", Container.MP4.value)),
+            cookie_browser=cookie_browser,
             create_playlist_folder=bool(data.get("create_playlist_folder", True)),
             number_playlist_items=bool(data.get("number_playlist_items", True)),
             use_download_archive=bool(data.get("use_download_archive", True)),

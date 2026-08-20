@@ -13,7 +13,7 @@ from pathlib import Path
 from videodownloader.core.exceptions import DownloadCancelled, DownloadError
 from videodownloader.downloader.arguments import build_download_arguments
 from videodownloader.downloader.progress import ProgressParser
-from videodownloader.models import DownloadJob, DownloadProgress, JobState
+from videodownloader.models import CookieBrowser, DownloadJob, DownloadProgress, JobState
 from videodownloader.utils.redaction import redact_sensitive_text
 
 ProgressCallback = Callable[[DownloadProgress], None]
@@ -107,7 +107,7 @@ class DownloadExecutor:
             detail = "\n".join(stderr_tail) or f"yt-dlp exited with code {return_code}"
             job.state = JobState.FAILED
             job.error_detail = detail
-            raise DownloadError(_friendly_error(detail), detail)
+            raise DownloadError(_friendly_error(detail, job.options.cookie_browser), detail)
         job.state = JobState.COMPLETED
         return parser.final_path
 
@@ -149,8 +149,23 @@ class DownloadExecutor:
         logging.getLogger(__name__).info("Download process tree cancelled")
 
 
-def _friendly_error(detail: str) -> str:
+def _friendly_error(detail: str, cookie_browser: CookieBrowser | None = None) -> str:
     lowered = detail.casefold()
+    if "sign in to confirm" in lowered or "not a bot" in lowered:
+        if cookie_browser is not None:
+            return (
+                "YouTube не принял авторизацию выбранного браузера. Убедитесь, что "
+                "в нём выполнен вход в YouTube, и повторите анализ."
+            )
+        return (
+            "YouTube запросил подтверждение. Выберите браузер с выполненным входом "
+            "в поле «Авторизация YouTube» и повторите анализ."
+        )
+    if (
+        "cookie" in lowered
+        and any(token in lowered for token in ("could not copy", "permission denied"))
+    ) or any(token in lowered for token in ("failed to decrypt", "dpapi", "v20")):
+        return "Не удалось прочитать cookies. Закройте браузер или попробуйте Mozilla Firefox."
     if any(token in lowered for token in ("network is unreachable", "timed out", "unable to download")):
         return "Не удалось подключиться к сайту. Проверьте интернет-соединение."
     if "unsupported url" in lowered:

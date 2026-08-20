@@ -31,6 +31,30 @@ class Container(StrEnum):
     MKV = "mkv"
 
 
+class CookieBrowser(StrEnum):
+    """Browsers whose authenticated cookies yt-dlp can read on demand."""
+
+    FIREFOX = "firefox"
+    EDGE = "edge"
+    CHROME = "chrome"
+    BRAVE = "brave"
+    VIVALDI = "vivaldi"
+    OPERA = "opera"
+    CHROMIUM = "chromium"
+
+    @property
+    def label(self) -> str:
+        return {
+            CookieBrowser.FIREFOX: "Mozilla Firefox",
+            CookieBrowser.EDGE: "Microsoft Edge",
+            CookieBrowser.CHROME: "Google Chrome",
+            CookieBrowser.BRAVE: "Brave",
+            CookieBrowser.VIVALDI: "Vivaldi",
+            CookieBrowser.OPERA: "Opera",
+            CookieBrowser.CHROMIUM: "Chromium",
+        }[self]
+
+
 class MediaKind(StrEnum):
     """Kind of media object returned by yt-dlp."""
 
@@ -89,6 +113,7 @@ class DownloadOptions:
     destination: Path
     quality: Quality = Quality.FHD_1080
     container: Container = Container.MP4
+    cookie_browser: CookieBrowser | None = None
     playlist_start: int | None = None
     playlist_end: int | None = None
     create_playlist_folder: bool = True
