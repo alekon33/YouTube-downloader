@@ -59,4 +59,3 @@ class ToolManifest:
                 raise ValueError(f"Insecure download URL for {name}.")
             tools[name] = asset
         return cls(schema_version=schema_version, tools=tools)
-

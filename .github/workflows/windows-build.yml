@@ -1,0 +1,48 @@
+name: Windows standalone build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Create build environment
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -e ".[dev,build]"
+
+      - name: Run checks
+        shell: pwsh
+        run: .\scripts\check.ps1
+
+      - name: Build standalone application
+        shell: pwsh
+        run: .\scripts\build.ps1 -Clean
+
+      - name: Upload standalone application
+        uses: actions/upload-artifact@v7
+        with:
+          name: VideoDownloader-windows-x64
+          path: dist/VideoDownloader
+          if-no-files-found: error
+          retention-days: 14

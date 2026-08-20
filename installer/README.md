@@ -7,8 +7,8 @@ installation directory, so a normal application update preserves them.
 Build the standalone directory first, then compile the installer:
 
 ```powershell
-.\scripts\build.ps1 -Clean
-.\scripts\build_installer.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Clean
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1
 ```
 
 The result is `installer\output\VideoDownloaderSetup-<version>.exe` plus its SHA-256 file.

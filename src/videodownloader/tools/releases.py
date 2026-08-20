@@ -100,4 +100,3 @@ def parse_latest_release(payload: dict[str, Any]) -> tuple[ToolAsset, str]:
 def _version_key(value: str) -> tuple[int, ...]:
     pieces = value.replace("-", ".").split(".")
     return tuple(int(piece) if piece.isdigit() else 0 for piece in pieces)
-

@@ -64,4 +64,17 @@ $builtDirectory = $builtExecutable.Directory.FullName
 Remove-Item -LiteralPath $distributionRoot -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $distributionRoot -Force | Out-Null
 Copy-Item -Path (Join-Path $builtDirectory '*') -Destination $distributionRoot -Recurse -Force
+$distributionLicenses = Join-Path $distributionRoot 'licenses'
+New-Item -ItemType Directory -Path $distributionLicenses -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $distributionRoot -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'THIRD_PARTY_NOTICES.md') -Destination $distributionRoot -Force
+Copy-Item -Path (Join-Path $projectRoot 'licenses\*') -Destination $distributionLicenses -Force
+$pythonLicense = & $venvPython -c "import pathlib, sys; print(pathlib.Path(sys.base_prefix) / 'LICENSE.txt')"
+if (Test-Path -LiteralPath $pythonLicense) {
+    Copy-Item -LiteralPath $pythonLicense -Destination (Join-Path $distributionLicenses 'PYTHON-LICENSE.txt') -Force
+}
+$nuitkaRuntimeLicense = & $venvPython -c "from importlib.metadata import distribution; d=distribution('Nuitka'); print(next(d.locate_file(p) for p in d.files or () if str(p).replace('\\', '/').endswith('licenses/LICENSE-RUNTIME.txt')))"
+if (Test-Path -LiteralPath $nuitkaRuntimeLicense) {
+    Copy-Item -LiteralPath $nuitkaRuntimeLicense -Destination (Join-Path $distributionLicenses 'NUITKA-RUNTIME-EXCEPTION.txt') -Force
+}
 Write-Host "Standalone build: $distributionRoot"

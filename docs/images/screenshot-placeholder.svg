@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title description">
+  <title id="title">Место для скриншота VideoDownloader</title>
+  <desc id="description">Схематичное окно приложения с полем ссылки и прогрессом загрузки.</desc>
+  <rect width="1280" height="720" rx="28" fill="#eaf2ff"/>
+  <rect x="80" y="62" width="1120" height="596" rx="22" fill="#ffffff" stroke="#b8c8df" stroke-width="3"/>
+  <rect x="80" y="62" width="1120" height="68" rx="22" fill="#1f6feb"/>
+  <circle cx="122" cy="96" r="10" fill="#ffffff" opacity=".75"/>
+  <text x="155" y="106" fill="#ffffff" font-family="Segoe UI, sans-serif" font-size="28" font-weight="600">VideoDownloader</text>
+  <text x="135" y="206" fill="#24364b" font-family="Segoe UI, sans-serif" font-size="22">Ссылка на видео или плейлист</text>
+  <rect x="135" y="230" width="770" height="58" rx="10" fill="#f7f9fc" stroke="#aebed2" stroke-width="2"/>
+  <rect x="930" y="230" width="200" height="58" rx="10" fill="#1f6feb"/>
+  <text x="968" y="267" fill="#ffffff" font-family="Segoe UI, sans-serif" font-size="20">Анализировать</text>
+  <rect x="135" y="335" width="995" height="118" rx="14" fill="#f4f7fb"/>
+  <text x="170" y="382" fill="#24364b" font-family="Segoe UI, sans-serif" font-size="24" font-weight="600">Название видео появится здесь</text>
+  <text x="170" y="422" fill="#62748a" font-family="Segoe UI, sans-serif" font-size="19">Качество · длительность · ориентировочный размер</text>
+  <rect x="135" y="510" width="760" height="18" rx="9" fill="#d8e3f2"/>
+  <rect x="135" y="510" width="510" height="18" rx="9" fill="#1f6feb"/>
+  <rect x="930" y="490" width="200" height="58" rx="10" fill="#17823b"/>
+  <text x="982" y="527" fill="#ffffff" font-family="Segoe UI, sans-serif" font-size="20">Скачать</text>
+  <text x="135" y="612" fill="#718197" font-family="Segoe UI, sans-serif" font-size="18">Скриншот будет добавлен перед публичным релизом</text>
+</svg>
