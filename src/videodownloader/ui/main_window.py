@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -41,6 +40,7 @@ from videodownloader.models import (
     JobState,
     MediaItem,
     Quality,
+    parse_playlist_intervals,
 )
 from videodownloader.services.tool_updates import update_check_due
 from videodownloader.settings import SettingsService
@@ -209,19 +209,28 @@ class MainWindow(QMainWindow):
         self._playlist_folder = QCheckBox(self.tr("Создать папку с названием плейлиста"))
         playlist_layout.addWidget(self._number_items, 0, 0)
         range_row = QHBoxLayout()
-        range_row.addWidget(QLabel(self.tr("Диапазон:")))
-        self._range_start = QSpinBox()
-        self._range_start.setRange(1, 999_999)
-        self._range_start.setValue(1)
-        self._range_start.setMaximumWidth(110)
-        self._range_end = QSpinBox()
-        self._range_end.setRange(0, 999_999)
-        self._range_end.setSpecialValueText(self.tr("Все"))
-        self._range_end.setMaximumWidth(110)
-        range_row.addWidget(self._range_start)
-        range_row.addWidget(QLabel("—"))
-        range_row.addWidget(self._range_end)
-        range_row.addStretch()
+        intervals_label = QLabel(self.tr("Интервалы:"))
+        self._playlist_intervals = QLineEdit()
+        self._playlist_intervals.setPlaceholderText(self.tr("Например: 1–5, 8–12, 20"))
+        self._playlist_intervals.setClearButtonEnabled(True)
+        self._playlist_intervals.setAccessibleName(self.tr("Интервалы плейлиста"))
+        self._playlist_intervals.setAccessibleDescription(
+            self.tr(
+                "Номера и интервалы через запятую. "
+                "Открытый интервал 5– означает с пятого до конца. "
+                "Оставьте поле пустым, чтобы скачать весь плейлист."
+            )
+        )
+        self._playlist_intervals.setToolTip(
+            self.tr(
+                "Укажите номера и интервалы через запятую, "
+                "например: 1–5, 8–12, 20. 5– означает с пятого "
+                "до конца. Пустое поле — весь плейлист."
+            )
+        )
+        intervals_label.setBuddy(self._playlist_intervals)
+        range_row.addWidget(intervals_label)
+        range_row.addWidget(self._playlist_intervals, 1)
         playlist_layout.addLayout(range_row, 0, 1)
         playlist_layout.addWidget(self._playlist_folder, 1, 0, 1, 2)
         self._archive = QCheckBox(self.tr("Пропускать уже скачанные"))
@@ -429,6 +438,19 @@ class MainWindow(QMainWindow):
     def _start_download(self) -> None:
         if self._media is None:
             return
+        try:
+            playlist_intervals = (
+                parse_playlist_intervals(
+                    self._playlist_intervals.text(), self._media.item_count
+                )
+                if self._media.is_playlist
+                else ()
+            )
+        except ValueError as error:
+            self._show_error(VideoDownloaderError(str(error)))
+            self._playlist_intervals.setFocus()
+            self._playlist_intervals.selectAll()
+            return
         destination = Path(self._folder.text().strip())
         try:
             destination.mkdir(parents=True, exist_ok=True)
@@ -438,8 +460,7 @@ class MainWindow(QMainWindow):
                 container=Container(self._container.currentData()),
                 audio_only=self._audio_only.isChecked(),
                 cookie_browser=self._selected_cookie_browser(),
-                playlist_start=self._range_start.value() if self._media.is_playlist else None,
-                playlist_end=(self._range_end.value() or None) if self._media.is_playlist else None,
+                playlist_intervals=playlist_intervals,
                 create_playlist_folder=self._playlist_folder.isChecked(),
                 number_playlist_items=self._number_items.isChecked(),
                 use_download_archive=self._archive.isChecked(),
@@ -541,13 +562,15 @@ class MainWindow(QMainWindow):
             self._folder,
             self._browse,
             self._cookie_browser,
-            self._number_items,
-            self._playlist_folder,
-            self._range_start,
-            self._range_end,
-            self._archive,
         ):
             editable_widget.setEnabled(editable)
+        for playlist_widget in (
+            self._number_items,
+            self._playlist_folder,
+            self._playlist_intervals,
+            self._archive,
+        ):
+            playlist_widget.setEnabled(editable and is_playlist)
         self._number_items.setText(
             self.tr("Нумеровать треки") if audio_only else self.tr("Нумеровать видео")
         )

@@ -29,8 +29,15 @@ def test_main_window_can_be_created(qtbot: QtBot, tmp_path: Path) -> None:
     assert window.windowTitle() == "VideoDownloader"
     assert window.minimumWidth() <= window.width()
     assert not hasattr(window, "_theme_combo")
+    assert not hasattr(window, "_range_start")
+    assert not hasattr(window, "_range_end")
     assert window._cookie_browser.currentData() is None
     assert window._cookie_browser.count() == 1 + 7
+    assert window._playlist_intervals.placeholderText() == "Например: 1–5, 8–12, 20"
+    assert not window._playlist_intervals.isEnabled()
+    assert "5–" in window._playlist_intervals.toolTip()
+    assert window._playlist_intervals.accessibleName()
+    assert window._playlist_intervals.accessibleDescription()
 
 
 def test_playlist_controls_do_not_compete_with_active_progress(
@@ -52,13 +59,84 @@ def test_playlist_controls_do_not_compete_with_active_progress(
 
     assert not window._playlist_options.isHidden()
     assert window._playlist_options.parentWidget() is window._options_group
+    assert window._playlist_intervals.isEnabled()
     assert window._overall_progress.isHidden()
 
     window._set_state(JobState.DOWNLOADING)
 
     assert window._playlist_options.isHidden()
+    assert not window._playlist_intervals.isEnabled()
     assert not window._overall_progress.isHidden()
     window._set_state(JobState.CANCELLED)
+
+
+def test_playlist_intervals_reach_controller(
+    monkeypatch: pytest.MonkeyPatch, qtbot: QtBot, tmp_path: Path
+) -> None:
+    paths = AppPaths.from_data_dir(tmp_path / "app", tmp_path / "downloads")
+    controller = AppController(paths, ToolManager(paths.tools_dir))
+    window = MainWindow(controller, SettingsService(paths), auto_prepare=False)
+    qtbot.addWidget(window)
+    captured: list[object] = []
+    monkeypatch.setattr(
+        controller,
+        "download",
+        lambda media, options: captured.extend((media, options)),
+    )
+    window._set_state(JobState.ANALYZING)
+    window._analysis_complete(
+        MediaItem(
+            source_url="https://example.test/playlist",
+            title="Playlist",
+            kind=MediaKind.PLAYLIST,
+            item_count=20,
+        )
+    )
+    window._folder.setText(str(tmp_path / "output"))
+    window._playlist_intervals.setText("1–5, 8-12, 20")
+
+    window._start_download()
+
+    assert len(captured) == 2
+    options = captured[1]
+    assert [(interval.start, interval.end) for interval in options.playlist_intervals] == [
+        (1, 5),
+        (8, 12),
+        (20, 20),
+    ]
+    assert window._state.state is JobState.DOWNLOADING
+    window._set_state(JobState.CANCELLED)
+
+
+def test_invalid_playlist_intervals_do_not_start_download(
+    monkeypatch: pytest.MonkeyPatch, qtbot: QtBot, tmp_path: Path
+) -> None:
+    paths = AppPaths.from_data_dir(tmp_path / "app", tmp_path / "downloads")
+    controller = AppController(paths, ToolManager(paths.tools_dir))
+    window = MainWindow(controller, SettingsService(paths), auto_prepare=False)
+    qtbot.addWidget(window)
+    downloads: list[object] = []
+    errors: list[object] = []
+    monkeypatch.setattr(controller, "download", lambda *args: downloads.append(args))
+    monkeypatch.setattr(window, "_show_error", errors.append)
+    window._set_state(JobState.ANALYZING)
+    window._analysis_complete(
+        MediaItem(
+            source_url="https://example.test/playlist",
+            title="Playlist",
+            kind=MediaKind.PLAYLIST,
+            item_count=20,
+        )
+    )
+    window._folder.setText(str(tmp_path / "output"))
+    window._playlist_intervals.setText("12–8")
+
+    window._start_download()
+
+    assert downloads == []
+    assert len(errors) == 1
+    assert "больше конца" in errors[0].user_message
+    assert window._state.state is JobState.READY
 
 
 def test_small_playlist_window_scrolls_instead_of_squashing_controls(
@@ -83,6 +161,11 @@ def test_small_playlist_window_scrolls_instead_of_squashing_controls(
 
     assert window._scroll_area.verticalScrollBar().maximum() > 0
     assert window._download.height() >= window._download.minimumHeight()
+    assert (
+        window._playlist_intervals.width()
+        >= window._playlist_intervals.minimumSizeHint().width()
+    )
+    assert window._playlist_intervals.height() >= window._playlist_intervals.minimumSizeHint().height()
 
 
 def test_browser_cookie_selection_requires_confirmation(

@@ -33,9 +33,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installe
 ```
 
 Проверьте запуск `dist\VideoDownloader\VideoDownloader.exe` на чистой Windows,
-первичную подготовку инструментов, анализ, одиночную загрузку, плейлист,
-отмену, обновление yt-dlp и удаление приложения. Также убедитесь, что рядом со
-сборкой присутствуют `LICENSE`, `THIRD_PARTY_NOTICES.md` и `licenses`.
+первичную подготовку инструментов, анализ, одиночную загрузку, разрывные
+интервалы плейлиста (`1–3, 8–10`) отдельно для видео и MP3, отмену, обновление
+yt-dlp и удаление приложения. Убедитесь, что общий прогресс считает только
+выбранные элементы, а рядом со сборкой присутствуют `LICENSE`,
+`THIRD_PARTY_NOTICES.md` и `licenses`.
 
 ## GitHub Release
 

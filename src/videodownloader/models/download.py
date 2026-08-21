@@ -7,6 +7,11 @@ from enum import StrEnum
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from videodownloader.models.playlist import (
+    PlaylistInterval,
+    normalize_playlist_intervals,
+)
+
 
 class Quality(StrEnum):
     """Maximum video quality selected by the user."""
@@ -115,6 +120,7 @@ class DownloadOptions:
     container: Container = Container.MP4
     audio_only: bool = False
     cookie_browser: CookieBrowser | None = None
+    playlist_intervals: tuple[PlaylistInterval, ...] = ()
     playlist_start: int | None = None
     playlist_end: int | None = None
     create_playlist_folder: bool = True
@@ -122,6 +128,17 @@ class DownloadOptions:
     use_download_archive: bool = True
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "playlist_intervals",
+            normalize_playlist_intervals(self.playlist_intervals),
+        )
+        if self.playlist_intervals and (
+            self.playlist_start is not None or self.playlist_end is not None
+        ):
+            raise ValueError(
+                "Нельзя одновременно указывать интервалы и старый диапазон плейлиста."
+            )
         if self.playlist_start is not None and self.playlist_start < 1:
             raise ValueError("Начало диапазона должно быть не меньше 1.")
         if self.playlist_end is not None and self.playlist_end < 1:

@@ -119,6 +119,13 @@ def build_download_arguments(
         selected = getattr(job, "selected_indices", ())
         if selected:
             arguments.extend(["--playlist-items", ",".join(str(item) for item in selected)])
+        elif options.playlist_intervals:
+            arguments.extend(
+                [
+                    "--playlist-items",
+                    ",".join(interval.to_yt_dlp_spec() for interval in options.playlist_intervals),
+                ]
+            )
         else:
             if options.playlist_start is not None:
                 arguments.extend(["--playlist-start", str(options.playlist_start)])

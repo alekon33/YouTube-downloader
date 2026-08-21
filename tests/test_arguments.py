@@ -17,6 +17,7 @@ from videodownloader.models import (
     DownloadOptions,
     MediaItem,
     MediaKind,
+    PlaylistInterval,
     PlaylistJob,
     Quality,
 )
@@ -96,6 +97,43 @@ def test_selected_playlist_indices_override_range(tmp_path: Path) -> None:
 
     assert arguments[arguments.index("--playlist-items") + 1] == "1,3,9"
     assert "--playlist-start" not in arguments
+
+
+def test_playlist_intervals_use_inclusive_yt_dlp_item_spec(tmp_path: Path) -> None:
+    media = MediaItem("https://example.test/list", "List", MediaKind.PLAYLIST, item_count=20)
+    job = DownloadJob(
+        media=media,
+        options=DownloadOptions(
+            destination=tmp_path,
+            playlist_intervals=(
+                PlaylistInterval(1, 5),
+                PlaylistInterval(8, 12),
+                PlaylistInterval(20, 20),
+            ),
+        ),
+    )
+
+    arguments = build_download_arguments(tmp_path / "yt-dlp.exe", tmp_path, job)
+
+    assert arguments[arguments.index("--playlist-items") + 1] == "1:5,8:12,20"
+    assert "--playlist-start" not in arguments
+    assert "--playlist-end" not in arguments
+
+
+def test_selected_playlist_indices_override_intervals(tmp_path: Path) -> None:
+    media = MediaItem("https://example.test/list", "List", MediaKind.PLAYLIST, item_count=20)
+    job = PlaylistJob(
+        media=media,
+        options=DownloadOptions(
+            destination=tmp_path,
+            playlist_intervals=(PlaylistInterval(5, 12),),
+        ),
+        selected_indices=(2, 7),
+    )
+
+    arguments = build_download_arguments(tmp_path / "yt-dlp.exe", tmp_path, job)
+
+    assert arguments[arguments.index("--playlist-items") + 1] == "2,7"
 
 
 def test_download_arguments_use_managed_deno_runtime(tmp_path: Path) -> None:

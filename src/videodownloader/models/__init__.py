@@ -13,6 +13,11 @@ from videodownloader.models.download import (
     PlaylistJob,
     Quality,
 )
+from videodownloader.models.playlist import (
+    PlaylistInterval,
+    normalize_playlist_intervals,
+    parse_playlist_intervals,
+)
 from videodownloader.models.settings import AppSettings
 
 __all__ = [
@@ -26,6 +31,9 @@ __all__ = [
     "JobState",
     "MediaItem",
     "MediaKind",
+    "PlaylistInterval",
     "PlaylistJob",
     "Quality",
+    "normalize_playlist_intervals",
+    "parse_playlist_intervals",
 ]
