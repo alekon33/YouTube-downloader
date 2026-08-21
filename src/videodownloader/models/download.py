@@ -113,6 +113,7 @@ class DownloadOptions:
     destination: Path
     quality: Quality = Quality.FHD_1080
     container: Container = Container.MP4
+    audio_only: bool = False
     cookie_browser: CookieBrowser | None = None
     playlist_start: int | None = None
     playlist_end: int | None = None

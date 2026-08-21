@@ -16,6 +16,7 @@ class AppSettings:
     destination: Path
     quality: Quality = Quality.FHD_1080
     container: Container = Container.MP4
+    audio_only: bool = False
     cookie_browser: CookieBrowser | None = None
     create_playlist_folder: bool = True
     number_playlist_items: bool = True
@@ -40,6 +41,7 @@ class AppSettings:
 
         interval = int(data.get("update_check_interval_hours", 24))
         raw_cookie_browser = data.get("cookie_browser")
+        raw_audio_only = data.get("audio_only", False)
         try:
             cookie_browser = (
                 CookieBrowser(raw_cookie_browser) if isinstance(raw_cookie_browser, str) else None
@@ -50,6 +52,7 @@ class AppSettings:
             destination=Path(data.get("destination") or default_destination),
             quality=Quality(data.get("quality", Quality.FHD_1080.value)),
             container=Container(data.get("container", Container.MP4.value)),
+            audio_only=raw_audio_only if isinstance(raw_audio_only, bool) else False,
             cookie_browser=cookie_browser,
             create_playlist_folder=bool(data.get("create_playlist_folder", True)),
             number_playlist_items=bool(data.get("number_playlist_items", True)),

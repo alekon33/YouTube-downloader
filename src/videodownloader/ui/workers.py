@@ -65,7 +65,7 @@ class DownloadWorker(QObject):
             self.failed.emit(error)
         except Exception as error:
             logging.getLogger(__name__).exception("Unexpected download error")
-            self.failed.emit(VideoDownloaderError("Не удалось скачать видео.", str(error)))
+            self.failed.emit(VideoDownloaderError("Не удалось скачать файл.", str(error)))
 
     def cancel(self) -> None:
         self.executor.cancel()

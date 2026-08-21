@@ -53,7 +53,7 @@ class DownloadExecutor:
             job,
             self.javascript_runtime,
         )
-        parser = ProgressParser()
+        parser = ProgressParser(audio_only=job.options.audio_only)
         stderr_tail: deque[str] = deque(maxlen=80)
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
             subprocess, "CREATE_NEW_PROCESS_GROUP", 0
@@ -180,4 +180,4 @@ def _friendly_error(detail: str, cookie_browser: CookieBrowser | None = None) ->
         return "Недостаточно свободного места на диске."
     if any(token in lowered for token in ("permission denied", "access is denied")):
         return "Не удалось записать файл в выбранную папку."
-    return "Не удалось скачать видео."
+    return "Не удалось скачать файл."

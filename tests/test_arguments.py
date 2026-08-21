@@ -61,6 +61,9 @@ def test_playlist_arguments_include_range_archive_and_folder(tmp_path: Path) -> 
     assert arguments[arguments.index("--playlist-start") + 1] == "5"
     assert arguments[arguments.index("--playlist-end") + 1] == "12"
     assert "--download-archive" in arguments
+    assert arguments[arguments.index("--download-archive") + 1].endswith(
+        "videodownloader-archive.txt"
+    )
     assert "%(playlist_title)s/%(playlist_index)03d - %(title)s.%(ext)s" in arguments
 
 
@@ -104,6 +107,8 @@ def test_download_arguments_use_managed_deno_runtime(tmp_path: Path) -> None:
 
     assert arguments[arguments.index("--js-runtimes") + 1] == f"deno:{deno}"
     assert arguments[arguments.index("--remote-components") + 1] == "ejs:github"
+    assert arguments[arguments.index("--merge-output-format") + 1] == "mp4"
+    assert "--extract-audio" not in arguments
 
 
 def test_download_arguments_use_explicit_browser_cookies(tmp_path: Path) -> None:
@@ -119,3 +124,52 @@ def test_download_arguments_use_explicit_browser_cookies(tmp_path: Path) -> None
     arguments = build_download_arguments(tmp_path / "yt-dlp.exe", tmp_path, job)
 
     assert arguments[arguments.index("--cookies-from-browser") + 1] == "edge"
+
+
+def test_audio_only_arguments_create_best_quality_mp3(tmp_path: Path) -> None:
+    media = MediaItem("https://example.test/video", "Video", MediaKind.VIDEO)
+    job = DownloadJob(
+        media=media,
+        options=DownloadOptions(
+            destination=tmp_path,
+            quality=Quality.LOW_360,
+            container=Container.MKV,
+            audio_only=True,
+        ),
+    )
+
+    arguments = build_download_arguments(tmp_path / "yt-dlp.exe", tmp_path, job)
+
+    assert arguments[arguments.index("--format") + 1] == "bestaudio/best"
+    assert "--extract-audio" in arguments
+    assert arguments[arguments.index("--audio-format") + 1] == "mp3"
+    assert arguments[arguments.index("--audio-quality") + 1] == "0"
+    assert "--merge-output-format" not in arguments
+    assert "height" not in arguments[arguments.index("--format") + 1]
+
+
+def test_audio_playlist_uses_separate_archive_and_keeps_range(tmp_path: Path) -> None:
+    media = MediaItem(
+        "https://example.test/list",
+        "List",
+        MediaKind.PLAYLIST,
+        item_count=20,
+    )
+    job = DownloadJob(
+        media=media,
+        options=DownloadOptions(
+            destination=tmp_path,
+            audio_only=True,
+            playlist_start=5,
+            playlist_end=12,
+        ),
+    )
+
+    arguments = build_download_arguments(tmp_path / "yt-dlp.exe", tmp_path, job)
+
+    assert arguments[arguments.index("--playlist-start") + 1] == "5"
+    assert arguments[arguments.index("--playlist-end") + 1] == "12"
+    assert arguments[arguments.index("--download-archive") + 1].endswith(
+        "videodownloader-audio-archive.txt"
+    )
+    assert "%(playlist_title)s/%(playlist_index)03d - %(title)s.%(ext)s" in arguments

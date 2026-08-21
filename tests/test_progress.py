@@ -29,6 +29,19 @@ def test_second_stream_is_reported_as_audio() -> None:
     assert progress.stage is DownloadStage.AUDIO
 
 
+def test_audio_only_first_stream_is_reported_as_audio() -> None:
+    parser = ProgressParser(audio_only=True)
+
+    progress = parser.parse(
+        'VDP_PROGRESS\t"downloading"\t1\t10\tnull\t1\t9\t1\t3\t"track.webm"'
+    )
+
+    assert progress is not None
+    assert progress.stage is DownloadStage.AUDIO
+    assert progress.playlist_index == 1
+    assert progress.playlist_count == 3
+
+
 def test_parse_postprocessing_and_final_path() -> None:
     parser = ProgressParser()
 

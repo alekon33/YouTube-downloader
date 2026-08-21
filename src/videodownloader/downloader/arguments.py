@@ -90,11 +90,29 @@ def build_download_arguments(
         str(options.destination),
         "--output",
         output,
-        "--format",
-        quality_expression(options.quality, options.container),
-        "--merge-output-format",
-        options.container.value,
     ]
+
+    if options.audio_only:
+        arguments.extend(
+            [
+                "--format",
+                "bestaudio/best",
+                "--extract-audio",
+                "--audio-format",
+                "mp3",
+                "--audio-quality",
+                "0",
+            ]
+        )
+    else:
+        arguments.extend(
+            [
+                "--format",
+                quality_expression(options.quality, options.container),
+                "--merge-output-format",
+                options.container.value,
+            ]
+        )
 
     if media.is_playlist:
         arguments.append("--yes-playlist")
@@ -107,8 +125,13 @@ def build_download_arguments(
             if options.playlist_end is not None:
                 arguments.extend(["--playlist-end", str(options.playlist_end)])
         if options.use_download_archive:
+            archive_name = (
+                "videodownloader-audio-archive.txt"
+                if options.audio_only
+                else "videodownloader-archive.txt"
+            )
             arguments.extend(
-                ["--download-archive", str(options.destination / "videodownloader-archive.txt")]
+                ["--download-archive", str(options.destination / archive_name)]
             )
     else:
         arguments.append("--no-playlist")

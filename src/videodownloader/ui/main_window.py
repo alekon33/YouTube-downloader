@@ -53,7 +53,7 @@ _STAGE_TEXT = {
     DownloadStage.ANALYZING: "Анализ…",
     DownloadStage.VIDEO: "Загрузка видео",
     DownloadStage.AUDIO: "Загрузка аудио",
-    DownloadStage.POST_PROCESSING: "Объединение дорожек",
+    DownloadStage.POST_PROCESSING: "Обработка файла",
     DownloadStage.COMPLETED: "Готово",
     DownloadStage.CANCELLED: "Отменено",
 }
@@ -146,14 +146,30 @@ class MainWindow(QMainWindow):
         options_layout = QGridLayout(self._options_group)
         options_layout.setColumnStretch(0, 1)
         options_layout.setColumnStretch(1, 1)
-        options_layout.addWidget(QLabel(self.tr("Максимальное качество")), 0, 0)
-        options_layout.addWidget(QLabel(self.tr("Контейнер")), 0, 1)
+        self._quality_label = QLabel(self.tr("Максимальное качество"))
+        options_layout.addWidget(self._quality_label, 0, 0)
+        container_header = QHBoxLayout()
+        self._container_label = QLabel(self.tr("Контейнер видео"))
+        container_header.addWidget(self._container_label)
+        container_header.addStretch()
+        self._audio_only = QCheckBox(self.tr("Только аудио"))
+        self._audio_only.setAccessibleName(self.tr("Скачать только аудио"))
+        self._audio_only.setAccessibleDescription(
+            self.tr("Скачать лучшую аудиодорожку и преобразовать её в MP3")
+        )
+        self._audio_only.setToolTip(
+            self.tr("Скачать лучшую аудиодорожку в формате MP3 без видео")
+        )
+        container_header.addWidget(self._audio_only)
+        options_layout.addLayout(container_header, 0, 1)
         self._quality = QComboBox()
         for quality in Quality:
             self._quality.addItem(quality.label, quality)
         self._container = QComboBox()
         self._container.addItem("MP4", Container.MP4)
         self._container.addItem("MKV", Container.MKV)
+        self._quality_label.setBuddy(self._quality)
+        self._container_label.setBuddy(self._container)
         options_layout.addWidget(self._quality, 1, 0)
         options_layout.addWidget(self._container, 1, 1)
         options_layout.addWidget(QLabel(self.tr("Папка сохранения")), 2, 0, 1, 2)
@@ -281,6 +297,7 @@ class MainWindow(QMainWindow):
         self._download.clicked.connect(self._start_download)
         self._cancel.clicked.connect(self._cancel_download)
         self._open_folder.clicked.connect(self._show_result_folder)
+        self._audio_only.toggled.connect(self._audio_only_changed)
         self._cookie_browser.currentIndexChanged.connect(self._cookie_browser_changed)
         self._controller.analysis_succeeded.connect(self._analysis_complete)
         self._controller.analysis_failed.connect(self._analysis_failed)
@@ -298,6 +315,7 @@ class MainWindow(QMainWindow):
         self._folder.setText(str(self._settings.destination))
         self._set_combo_data(self._quality, self._settings.quality)
         self._set_combo_data(self._container, self._settings.container)
+        self._audio_only.setChecked(self._settings.audio_only)
         blocker = QSignalBlocker(self._cookie_browser)
         if self._settings.cookie_browser is None:
             self._cookie_browser.setCurrentIndex(0)
@@ -335,9 +353,25 @@ class MainWindow(QMainWindow):
             return
         self._media = value
         self._media_title.setText(value.title)
+        self._update_media_details()
+        self._playlist_status.clear()
+        self._overall_progress.setValue(0)
+        self._status.setText(self.tr("Готово к скачиванию"))
+        self._set_state(JobState.READY)
+
+    def _update_media_details(self) -> None:
+        value = self._media
+        if value is None:
+            return
         if value.is_playlist:
             count = str(value.item_count) if value.item_count is not None else "неизвестно"
             details = self.tr("Плейлист · элементов: {count}").format(count=count)
+            if self._audio_only.isChecked():
+                details += self.tr(" · только аудио (MP3)")
+        elif self._audio_only.isChecked():
+            details = self.tr("{duration} · будет загружено только аудио (MP3)").format(
+                duration=format_duration(value.duration_seconds)
+            )
         else:
             qualities = ", ".join(f"{height}p" for height in value.available_heights) or "—"
             details = self.tr("{duration} · качества: {qualities} · размер: {size}").format(
@@ -346,10 +380,12 @@ class MainWindow(QMainWindow):
                 size=format_bytes(value.estimated_bytes),
             )
         self._media_details.setText(details)
-        self._playlist_status.clear()
-        self._overall_progress.setValue(0)
-        self._status.setText(self.tr("Готово к скачиванию"))
-        self._set_state(JobState.READY)
+
+    @Slot(bool)
+    def _audio_only_changed(self, checked: bool) -> None:
+        del checked
+        self._refresh_controls()
+        self._update_media_details()
 
     @Slot(object)
     def _analysis_failed(self, value: object) -> None:
@@ -400,6 +436,7 @@ class MainWindow(QMainWindow):
                 destination=destination,
                 quality=Quality(self._quality.currentData()),
                 container=Container(self._container.currentData()),
+                audio_only=self._audio_only.isChecked(),
                 cookie_browser=self._selected_cookie_browser(),
                 playlist_start=self._range_start.value() if self._media.is_playlist else None,
                 playlist_end=(self._range_end.value() or None) if self._media.is_playlist else None,
@@ -425,14 +462,18 @@ class MainWindow(QMainWindow):
             return
         if value.stage is DownloadStage.POST_PROCESSING and self._state.state is JobState.DOWNLOADING:
             self._set_state(JobState.POST_PROCESSING)
-        self._status.setText(_STAGE_TEXT[value.stage])
+        if value.stage is DownloadStage.POST_PROCESSING and self._audio_only.isChecked():
+            self._status.setText(self.tr("Обработка аудио"))
+        else:
+            self._status.setText(_STAGE_TEXT[value.stage])
         if value.percent is not None:
             self._current_progress.setValue(round(value.percent))
         if value.overall_percent is not None:
             self._overall_progress.setValue(round(value.overall_percent))
         if value.playlist_index is not None:
             count = str(value.playlist_count) if value.playlist_count is not None else "?"
-            self._playlist_status.setText(f"Видео {value.playlist_index} из {count}")
+            item_name = self.tr("Трек") if self._audio_only.isChecked() else self.tr("Видео")
+            self._playlist_status.setText(f"{item_name} {value.playlist_index} из {count}")
         speed = (
             f"{format_bytes(value.speed_bytes_per_second)}/с"
             if value.speed_bytes_per_second is not None
@@ -450,7 +491,7 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _download_failed(self, value: object) -> None:
-        error = self._coerce_error(value, "Не удалось скачать видео.")
+        error = self._coerce_error(value, "Не удалось скачать файл.")
         self._status.setText(self.tr("Ошибка"))
         self._set_state(JobState.FAILED)
         self._show_error(error)
@@ -479,6 +520,7 @@ class MainWindow(QMainWindow):
         analyzing = state is JobState.ANALYZING
         active = state in {JobState.DOWNLOADING, JobState.POST_PROCESSING}
         editable = not analyzing and not active
+        audio_only = self._audio_only.isChecked()
         is_playlist = self._media is not None and self._media.is_playlist
         self._playlist_options.setVisible(is_playlist and editable)
         self._playlist_status.setVisible(is_playlist and active)
@@ -486,9 +528,16 @@ class MainWindow(QMainWindow):
         self._overall_progress.setVisible(is_playlist and active)
         self._url.setEnabled(editable)
         self._analyze.setEnabled(editable and bool(self._url.text().strip()))
-        for widget in (
+        self._audio_only.setEnabled(editable)
+        video_options_enabled = editable and not audio_only
+        for video_widget in (
+            self._quality_label,
             self._quality,
+            self._container_label,
             self._container,
+        ):
+            video_widget.setEnabled(video_options_enabled)
+        for editable_widget in (
             self._folder,
             self._browse,
             self._cookie_browser,
@@ -498,7 +547,11 @@ class MainWindow(QMainWindow):
             self._range_end,
             self._archive,
         ):
-            widget.setEnabled(editable)
+            editable_widget.setEnabled(editable)
+        self._number_items.setText(
+            self.tr("Нумеровать треки") if audio_only else self.tr("Нумеровать видео")
+        )
+        self._download.setText(self.tr("Скачать аудио") if audio_only else self.tr("Скачать"))
         self._download.setEnabled(editable and self._media is not None)
         self._cancel.setEnabled(active)
         self._open_folder.setEnabled(self._result_folder.exists())
@@ -557,6 +610,7 @@ class MainWindow(QMainWindow):
             destination=destination,
             quality=Quality(self._quality.currentData()),
             container=Container(self._container.currentData()),
+            audio_only=self._audio_only.isChecked(),
             cookie_browser=self._selected_cookie_browser(),
             create_playlist_folder=self._playlist_folder.isChecked(),
             number_playlist_items=self._number_items.isChecked(),

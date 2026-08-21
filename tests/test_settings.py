@@ -12,6 +12,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         destination=tmp_path / "media",
         quality=Quality.UHD_2160,
         container=Container.MKV,
+        audio_only=True,
         cookie_browser=CookieBrowser.FIREFOX,
         create_playlist_folder=False,
     )
@@ -68,3 +69,23 @@ def test_unknown_cookie_browser_does_not_reset_other_settings(tmp_path: Path) ->
     assert loaded.quality is Quality.HD_720
     assert loaded.container is Container.MKV
     assert loaded.cookie_browser is None
+
+
+def test_legacy_settings_default_to_video_mode(tmp_path: Path) -> None:
+    loaded = AppSettings.from_dict(
+        {
+            "quality": Quality.HD_720.value,
+            "container": Container.MKV.value,
+        },
+        tmp_path,
+    )
+
+    assert loaded.audio_only is False
+    assert loaded.quality is Quality.HD_720
+    assert loaded.container is Container.MKV
+
+
+def test_invalid_audio_only_setting_defaults_to_video_mode(tmp_path: Path) -> None:
+    loaded = AppSettings.from_dict({"audio_only": "true"}, tmp_path)
+
+    assert loaded.audio_only is False

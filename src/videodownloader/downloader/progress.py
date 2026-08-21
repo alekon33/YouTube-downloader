@@ -12,8 +12,9 @@ from videodownloader.models import DownloadProgress, DownloadStage
 class ProgressParser:
     """Convert stable marker lines into progress snapshots."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, audio_only: bool = False) -> None:
         self.final_path: Path | None = None
+        self._audio_only = audio_only
         self._last_filename: str | None = None
         self._last_playlist_index: int | None = None
         self._stream_number = 0
@@ -72,7 +73,11 @@ class ProgressParser:
         percent = None
         if downloaded is not None and total:
             percent = min(100.0, downloaded / total * 100)
-        stage = DownloadStage.AUDIO if self._stream_number > 1 else DownloadStage.VIDEO
+        stage = (
+            DownloadStage.AUDIO
+            if self._audio_only or self._stream_number > 1
+            else DownloadStage.VIDEO
+        )
         return DownloadProgress(
             stage=stage,
             percent=percent,
