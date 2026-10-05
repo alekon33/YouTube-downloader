@@ -10,8 +10,8 @@ from PySide6.QtGui import QGuiApplication, QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
 
-def main() -> int:
-    root = Path(__file__).resolve().parents[1]
+def render_icon(root: Path) -> None:
+    """Create build icons even when a fresh checkout has no assets directory."""
     source = root / "src" / "videodownloader" / "resources" / "icon.svg"
     renderer = QSvgRenderer(str(source))
     if not renderer.isValid():
@@ -21,10 +21,16 @@ def main() -> int:
     painter = QPainter(image)
     renderer.render(painter)
     painter.end()
-    outputs = (root / "assets" / "icon.png", root / "assets" / "icon.ico")
+    output_dir = root / "assets"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    outputs = (output_dir / "icon.png", output_dir / "icon.ico")
     for output in outputs:
         if not image.save(str(output)):
             raise RuntimeError(f"Qt could not write icon format: {output.suffix}")
+
+
+def main() -> int:
+    render_icon(Path(__file__).resolve().parents[1])
     return 0
 
 
