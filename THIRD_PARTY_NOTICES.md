@@ -24,6 +24,16 @@ engineering for debugging changes to those libraries. A distributor who uses
 the LGPL option must preserve the shared-library layout, notices and all other
 applicable LGPL requirements, or obtain an appropriate commercial Qt license.
 
+## psutil
+
+The standalone distribution contains the unmodified psutil library, used to
+suspend and resume only the download process tree owned by VideoDownloader.
+psutil 7.2.2 is distributed under the BSD 3-Clause License. Its copyright notice
+and license are included in `licenses/PSUTIL-LICENSE.txt`.
+
+- Project and source: https://github.com/giampaolo/psutil
+- License: https://github.com/giampaolo/psutil/blob/release-7.2.2/LICENSE
+
 ## yt-dlp
 
 `yt-dlp.exe` is not stored in this repository and is not embedded in the

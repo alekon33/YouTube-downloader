@@ -69,6 +69,11 @@ New-Item -ItemType Directory -Path $distributionLicenses -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $distributionRoot -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'THIRD_PARTY_NOTICES.md') -Destination $distributionRoot -Force
 Copy-Item -Path (Join-Path $projectRoot 'licenses\*') -Destination $distributionLicenses -Force
+$psutilLicense = & $venvPython -c "from importlib.metadata import distribution; d=distribution('psutil'); print(next(d.locate_file(p) for p in d.files or () if str(p).replace('\\', '/').endswith('.dist-info/LICENSE')))"
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $psutilLicense)) {
+    throw 'Could not find the license of the packaged psutil version.'
+}
+Copy-Item -LiteralPath $psutilLicense -Destination (Join-Path $distributionLicenses 'PSUTIL-LICENSE.txt') -Force
 $pythonLicense = & $venvPython -c "import pathlib, sys; print(pathlib.Path(sys.base_prefix) / 'LICENSE.txt')"
 if (Test-Path -LiteralPath $pythonLicense) {
     Copy-Item -LiteralPath $pythonLicense -Destination (Join-Path $distributionLicenses 'PYTHON-LICENSE.txt') -Force
