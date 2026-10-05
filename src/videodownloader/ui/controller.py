@@ -121,6 +121,13 @@ class AppController(QObject):
         if self._download_worker:
             self._download_worker.cancel()
 
+    def pause_download(self) -> bool:
+        return self._download_worker.pause() if self._download_worker else False
+
+    def resume_download(self) -> None:
+        if self._download_worker:
+            self._download_worker.resume()
+
     def shutdown(self) -> None:
         """Cancel downloads and let workers finish before the event loop exits."""
         if self._shutting_down:

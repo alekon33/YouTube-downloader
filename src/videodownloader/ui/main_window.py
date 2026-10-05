@@ -54,10 +54,24 @@ _STAGE_TEXT = {
     DownloadStage.ANALYZING: "Анализ…",
     DownloadStage.VIDEO: "Загрузка видео",
     DownloadStage.AUDIO: "Загрузка аудио",
+    DownloadStage.RESUMING: "Возобновление загрузки…",
+    DownloadStage.PAUSING: "Включение паузы…",
+    DownloadStage.PAUSED: "На паузе",
+    DownloadStage.WAITING_FOR_CONNECTION: "Ожидание соединения…",
     DownloadStage.POST_PROCESSING: "Обработка файла",
     DownloadStage.COMPLETED: "Готово",
     DownloadStage.CANCELLED: "Отменено",
 }
+
+_ACTIVE_DOWNLOAD_STATES = frozenset(
+    {
+        JobState.DOWNLOADING,
+        JobState.POST_PROCESSING,
+        JobState.PAUSING,
+        JobState.PAUSED,
+        JobState.WAITING_FOR_CONNECTION,
+    }
+)
 
 
 class MainWindow(QMainWindow):
@@ -80,6 +94,7 @@ class MainWindow(QMainWindow):
         self._media: MediaItem | None = None
         self._result_folder = self._settings.destination
         self._manual_update_check = False
+        self._download_cancel_requested = False
         self._explicit_exit = False
         self._shutting_down = False
         self._tray_notice_shown = False
@@ -109,9 +124,7 @@ class MainWindow(QMainWindow):
         self._scroll_area = QScrollArea()
         self._scroll_area.setWidgetResizable(True)
         self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self._scroll_area.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         central = QWidget()
         root = QVBoxLayout(central)
@@ -169,9 +182,7 @@ class MainWindow(QMainWindow):
         self._audio_only.setAccessibleDescription(
             self.tr("Скачать лучшую аудиодорожку и преобразовать её в MP3")
         )
-        self._audio_only.setToolTip(
-            self.tr("Скачать лучшую аудиодорожку в формате MP3 без видео")
-        )
+        self._audio_only.setToolTip(self.tr("Скачать лучшую аудиодорожку в формате MP3 без видео"))
         container_header.addWidget(self._audio_only)
         options_layout.addLayout(container_header, 0, 1)
         self._quality = QComboBox()
@@ -265,6 +276,7 @@ class MainWindow(QMainWindow):
         status_row = QHBoxLayout()
         self._status = QLabel(self.tr("Готово к работе"))
         self._status.setObjectName("mediaTitle")
+        self._status.setWordWrap(True)
         self._playlist_status = QLabel("")
         self._playlist_status.setObjectName("muted")
         self._playlist_status.hide()
@@ -290,9 +302,16 @@ class MainWindow(QMainWindow):
         action_row = QHBoxLayout()
         self._cancel = QPushButton(self.tr("Отмена"))
         self._cancel.setObjectName("danger")
+        self._pause = QPushButton(self.tr("Пауза"))
+        self._pause.setObjectName("secondary")
+        self._pause.setAccessibleName(self.tr("Пауза или продолжение загрузки"))
+        self._pause.setAccessibleDescription(
+            self.tr("Приостановить загрузку, сохранив данные, или продолжить её.")
+        )
         self._open_folder = QPushButton(self.tr("Открыть папку"))
         self._open_folder.setObjectName("secondary")
         action_row.addWidget(self._cancel)
+        action_row.addWidget(self._pause)
         action_row.addStretch()
         action_row.addWidget(self._open_folder)
         progress_layout.addLayout(action_row)
@@ -330,6 +349,7 @@ class MainWindow(QMainWindow):
         self._browse.clicked.connect(self._choose_folder)
         self._download.clicked.connect(self._start_download)
         self._cancel.clicked.connect(self._cancel_download)
+        self._pause.clicked.connect(self._toggle_pause)
         self._open_folder.clicked.connect(self._show_result_folder)
         self._audio_only.toggled.connect(self._audio_only_changed)
         self._cookie_browser.currentIndexChanged.connect(self._cookie_browser_changed)
@@ -465,9 +485,7 @@ class MainWindow(QMainWindow):
             return
         try:
             playlist_intervals = (
-                parse_playlist_intervals(
-                    self._playlist_intervals.text(), self._media.item_count
-                )
+                parse_playlist_intervals(self._playlist_intervals.text(), self._media.item_count)
                 if self._media.is_playlist
                 else ()
             )
@@ -491,27 +509,57 @@ class MainWindow(QMainWindow):
                 use_download_archive=self._archive.isChecked(),
             )
         except (OSError, ValueError) as error:
-            self._show_error(VideoDownloaderError("Не удалось использовать выбранную папку.", str(error)))
+            self._show_error(
+                VideoDownloaderError("Не удалось использовать выбранную папку.", str(error))
+            )
             return
         self._persist_settings(destination)
         self._result_folder = destination
         self._current_progress.setValue(0)
         self._overall_progress.setValue(0)
         self._telemetry.setText("—")
+        self._download_cancel_requested = False
         self._set_state(JobState.DOWNLOADING)
         self._status.setText(self.tr("Запуск загрузки…"))
         self._controller.download(self._media, options)
 
     @Slot(object)
     def _update_progress(self, value: object) -> None:
-        if not isinstance(value, DownloadProgress):
+        if (
+            not isinstance(value, DownloadProgress)
+            or self._shutting_down
+            or self._download_cancel_requested
+        ):
             return
-        if value.stage is DownloadStage.POST_PROCESSING and self._state.state is JobState.DOWNLOADING:
-            self._set_state(JobState.POST_PROCESSING)
+        if self._state.state in {JobState.PAUSING, JobState.PAUSED} and value.stage in {
+            DownloadStage.VIDEO,
+            DownloadStage.AUDIO,
+        }:
+            return
+        progress_states = {
+            DownloadStage.VIDEO: JobState.DOWNLOADING,
+            DownloadStage.AUDIO: JobState.DOWNLOADING,
+            DownloadStage.RESUMING: JobState.DOWNLOADING,
+            DownloadStage.POST_PROCESSING: JobState.POST_PROCESSING,
+            DownloadStage.PAUSED: JobState.PAUSED,
+            DownloadStage.PAUSING: JobState.PAUSING,
+            DownloadStage.WAITING_FOR_CONNECTION: JobState.WAITING_FOR_CONNECTION,
+        }
+        target_state = progress_states.get(value.stage)
+        if target_state is not None:
+            self._set_state(target_state)
         if value.stage is DownloadStage.POST_PROCESSING and self._audio_only.isChecked():
             self._status.setText(self.tr("Обработка аудио"))
         else:
-            self._status.setText(_STAGE_TEXT[value.stage])
+            control_stage = value.stage in {
+                DownloadStage.PAUSED,
+                DownloadStage.PAUSING,
+                DownloadStage.RESUMING,
+                DownloadStage.WAITING_FOR_CONNECTION,
+            }
+            self._status.setText(
+                value.message if control_stage and value.message else _STAGE_TEXT[value.stage]
+            )
         if value.percent is not None:
             self._current_progress.setValue(round(value.percent))
         if value.overall_percent is not None:
@@ -554,9 +602,23 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _cancel_download(self) -> None:
-        self._cancel.setEnabled(False)
+        self._download_cancel_requested = True
+        self._refresh_controls()
         self._status.setText(self.tr("Отмена…"))
         self._controller.cancel_download()
+
+    @Slot()
+    def _toggle_pause(self) -> None:
+        if self._download_cancel_requested:
+            return
+        if self._state.state is JobState.PAUSED:
+            self._controller.resume_download()
+            self._set_state(JobState.DOWNLOADING)
+            self._status.setText(self.tr("Возобновление загрузки…"))
+        elif self._state.state in {JobState.DOWNLOADING, JobState.WAITING_FOR_CONNECTION}:
+            if self._controller.pause_download():
+                self._set_state(JobState.PAUSING)
+                self._status.setText(self.tr("Включение паузы…"))
 
     def _set_state(self, state: JobState) -> None:
         self._state.transition(state)
@@ -566,7 +628,7 @@ class MainWindow(QMainWindow):
     def _refresh_controls(self) -> None:
         state = self._state.state
         analyzing = state is JobState.ANALYZING
-        active = state in {JobState.DOWNLOADING, JobState.POST_PROCESSING}
+        active = state in _ACTIVE_DOWNLOAD_STATES
         editable = not analyzing and not active
         audio_only = self._audio_only.isChecked()
         is_playlist = self._media is not None and self._media.is_playlist
@@ -603,7 +665,17 @@ class MainWindow(QMainWindow):
         )
         self._download.setText(self.tr("Скачать аудио") if audio_only else self.tr("Скачать"))
         self._download.setEnabled(editable and self._media is not None)
-        self._cancel.setEnabled(active)
+        self._cancel.setEnabled(active and not self._download_cancel_requested)
+        self._pause.setText(self.tr("Продолжить") if state is JobState.PAUSED else self.tr("Пауза"))
+        self._pause.setEnabled(
+            not self._download_cancel_requested
+            and state in {JobState.DOWNLOADING, JobState.PAUSED, JobState.WAITING_FOR_CONNECTION}
+        )
+        self._pause.setToolTip(
+            self.tr("Пауза недоступна во время объединения дорожек или обработки аудио.")
+            if state is JobState.POST_PROCESSING
+            else self.tr("Пауза сохраняет недокачанные данные.")
+        )
         self._open_folder.setEnabled(self._result_folder.exists())
 
     @Slot()
@@ -695,9 +767,7 @@ class MainWindow(QMainWindow):
     def _update_checked(self, value: object) -> None:
         if self._shutting_down:
             return
-        self._settings = replace(
-            self._settings, last_yt_dlp_check=datetime.now(UTC).isoformat()
-        )
+        self._settings = replace(self._settings, last_yt_dlp_check=datetime.now(UTC).isoformat())
         self._settings_service.save(self._settings)
         manual = self._manual_update_check
         self._manual_update_check = False
@@ -819,14 +889,10 @@ class MainWindow(QMainWindow):
         if self._shutting_down:
             event.accept()
             return
-        if (
-            not self._explicit_exit
-            and self._settings.minimize_to_tray
-            and self._hide_to_tray()
-        ):
+        if not self._explicit_exit and self._settings.minimize_to_tray and self._hide_to_tray():
             event.ignore()
             return
-        if self._state.state in {JobState.DOWNLOADING, JobState.POST_PROCESSING}:
+        if self._state.state in _ACTIVE_DOWNLOAD_STATES:
             self._restore_from_tray()
             answer = QMessageBox.question(
                 self,

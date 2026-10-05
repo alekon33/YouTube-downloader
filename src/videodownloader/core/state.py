@@ -11,13 +11,47 @@ _TRANSITIONS: dict[JobState, frozenset[JobState]] = {
     JobState.DOWNLOADING: frozenset(
         {
             JobState.POST_PROCESSING,
+            JobState.PAUSING,
+            JobState.PAUSED,
+            JobState.WAITING_FOR_CONNECTION,
             JobState.COMPLETED,
             JobState.CANCELLED,
             JobState.FAILED,
         }
     ),
     JobState.POST_PROCESSING: frozenset(
-        {JobState.COMPLETED, JobState.CANCELLED, JobState.FAILED}
+        {JobState.DOWNLOADING, JobState.COMPLETED, JobState.CANCELLED, JobState.FAILED}
+    ),
+    JobState.PAUSING: frozenset(
+        {
+            JobState.PAUSED,
+            JobState.DOWNLOADING,
+            JobState.POST_PROCESSING,
+            JobState.WAITING_FOR_CONNECTION,
+            JobState.COMPLETED,
+            JobState.CANCELLED,
+            JobState.FAILED,
+        }
+    ),
+    JobState.PAUSED: frozenset(
+        {
+            JobState.DOWNLOADING,
+            JobState.WAITING_FOR_CONNECTION,
+            JobState.COMPLETED,
+            JobState.CANCELLED,
+            JobState.FAILED,
+        }
+    ),
+    JobState.WAITING_FOR_CONNECTION: frozenset(
+        {
+            JobState.DOWNLOADING,
+            JobState.POST_PROCESSING,
+            JobState.PAUSING,
+            JobState.PAUSED,
+            JobState.COMPLETED,
+            JobState.CANCELLED,
+            JobState.FAILED,
+        }
     ),
     JobState.COMPLETED: frozenset({JobState.ANALYZING, JobState.DOWNLOADING, JobState.READY}),
     JobState.CANCELLED: frozenset({JobState.ANALYZING, JobState.DOWNLOADING, JobState.READY}),
@@ -50,4 +84,3 @@ class AppStateMachine:
             self.transition(target)
         else:
             self._state = target
-

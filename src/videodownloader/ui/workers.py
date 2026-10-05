@@ -70,6 +70,12 @@ class DownloadWorker(QObject):
     def cancel(self) -> None:
         self.executor.cancel()
 
+    def pause(self) -> bool:
+        return self.executor.pause()
+
+    def resume(self) -> None:
+        self.executor.resume()
+
     def _emit_progress(self, progress: DownloadProgress) -> None:
         self.progress.emit(progress)
 
@@ -123,7 +129,9 @@ class UpdateCheckWorker(QObject):
             self.failed.emit(error)
         except Exception as error:
             logging.getLogger(__name__).exception("Update check failed")
-            self.failed.emit(VideoDownloaderError("Не удалось проверить обновление yt-dlp.", str(error)))
+            self.failed.emit(
+                VideoDownloaderError("Не удалось проверить обновление yt-dlp.", str(error))
+            )
 
 
 class UpdateInstallWorker(QObject):

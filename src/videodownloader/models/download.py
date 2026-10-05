@@ -74,6 +74,9 @@ class JobState(StrEnum):
     ANALYZING = "analyzing"
     READY = "ready"
     DOWNLOADING = "downloading"
+    PAUSING = "pausing"
+    PAUSED = "paused"
+    WAITING_FOR_CONNECTION = "waiting_for_connection"
     POST_PROCESSING = "post_processing"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
@@ -86,6 +89,10 @@ class DownloadStage(StrEnum):
     ANALYZING = "analyzing"
     VIDEO = "video"
     AUDIO = "audio"
+    RESUMING = "resuming"
+    PAUSING = "pausing"
+    PAUSED = "paused"
+    WAITING_FOR_CONNECTION = "waiting_for_connection"
     POST_PROCESSING = "post_processing"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
@@ -136,9 +143,7 @@ class DownloadOptions:
         if self.playlist_intervals and (
             self.playlist_start is not None or self.playlist_end is not None
         ):
-            raise ValueError(
-                "Нельзя одновременно указывать интервалы и старый диапазон плейлиста."
-            )
+            raise ValueError("Нельзя одновременно указывать интервалы и старый диапазон плейлиста.")
         if self.playlist_start is not None and self.playlist_start < 1:
             raise ValueError("Начало диапазона должно быть не меньше 1.")
         if self.playlist_end is not None and self.playlist_end < 1:

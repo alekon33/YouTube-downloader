@@ -15,12 +15,10 @@ PROGRESS_TEMPLATE = (
     "%(progress.filename)j"
 )
 POSTPROCESS_TEMPLATE = (
-    "postprocess:VDP_POSTPROCESS\t%(progress.status)j\t%(info.playlist_autonumber)j\t"
-    "%(info.n_entries)j\t%(progress.postprocessor)j"
+    'post_process:VDP_POSTPROCESS\t"started"\t%(playlist_autonumber)j\t'
+    '%(n_entries)j\t"Обработка файла"'
 )
-FINISHED_TEMPLATE = (
-    "after_move:VDP_FINISHED\t%(filepath)j\t%(playlist_autonumber)j\t%(n_entries)j"
-)
+FINISHED_TEMPLATE = "after_move:VDP_FINISHED\t%(filepath)j\t%(playlist_autonumber)j\t%(n_entries)j"
 
 
 def browser_cookie_arguments(browser: CookieBrowser | None) -> list[str]:
@@ -73,7 +71,9 @@ def build_download_arguments(
         "--progress",
         "--progress-template",
         PROGRESS_TEMPLATE,
-        "--progress-template",
+        # A print at post_process shares stdout ordering with download markers.
+        # Postprocessor progress hooks can be routed to stderr by yt-dlp.
+        "--print",
         POSTPROCESS_TEMPLATE,
         "--print",
         FINISHED_TEMPLATE,
@@ -83,7 +83,22 @@ def build_download_arguments(
         "--trim-filenames",
         "180",
         "--continue",
+        "--part",
         "--no-overwrites",
+        "--abort-on-error",
+        "--no-skip-unavailable-fragments",
+        "--socket-timeout",
+        "10",
+        "--retries",
+        "3",
+        "--fragment-retries",
+        "3",
+        "--extractor-retries",
+        "3",
+        "--retry-sleep",
+        "http:2",
+        "--retry-sleep",
+        "fragment:2",
         "--ffmpeg-location",
         str(ffmpeg_directory),
         "--paths",
@@ -137,9 +152,7 @@ def build_download_arguments(
                 if options.audio_only
                 else "videodownloader-archive.txt"
             )
-            arguments.extend(
-                ["--download-archive", str(options.destination / archive_name)]
-            )
+            arguments.extend(["--download-archive", str(options.destination / archive_name)])
     else:
         arguments.append("--no-playlist")
 

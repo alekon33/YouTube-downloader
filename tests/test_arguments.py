@@ -74,10 +74,11 @@ def test_playlist_progress_templates_use_selected_download_queue() -> None:
     assert "%(info.playlist_index)j" not in PROGRESS_TEMPLATE
     assert "%(info.playlist_count)j" not in PROGRESS_TEMPLATE
 
-    assert "%(info.playlist_autonumber)j" in POSTPROCESS_TEMPLATE
-    assert "%(info.n_entries)j" in POSTPROCESS_TEMPLATE
-    assert "%(info.playlist_index)j" not in POSTPROCESS_TEMPLATE
-    assert "%(info.playlist_count)j" not in POSTPROCESS_TEMPLATE
+    assert "%(playlist_autonumber)j" in POSTPROCESS_TEMPLATE
+    assert "%(n_entries)j" in POSTPROCESS_TEMPLATE
+    assert "%(playlist_index)j" not in POSTPROCESS_TEMPLATE
+    assert "%(playlist_count)j" not in POSTPROCESS_TEMPLATE
+    assert POSTPROCESS_TEMPLATE.startswith("post_process:")
 
     assert "%(playlist_autonumber)j" in FINISHED_TEMPLATE
     assert "%(n_entries)j" in FINISHED_TEMPLATE
