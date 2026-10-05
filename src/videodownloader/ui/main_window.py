@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QElapsedTimer, QSignalBlocker, Qt, QTimer, QUrl, Slot
+from PySide6.QtCore import QElapsedTimer, QEvent, QSignalBlocker, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -48,6 +48,7 @@ from videodownloader.tools.releases import YtDlpUpdate
 from videodownloader.ui.controller import AppController, openable_folder
 from videodownloader.ui.dialogs import PreparationDialog, show_about
 from videodownloader.ui.formatting import format_bytes, format_duration, format_eta
+from videodownloader.ui.tray import TrayIcon
 
 _STAGE_TEXT = {
     DownloadStage.ANALYZING: "Анализ…",
@@ -61,6 +62,8 @@ _STAGE_TEXT = {
 
 class MainWindow(QMainWindow):
     """Present media state and delegate all operations to the controller."""
+
+    quit_requested = Signal()
 
     def __init__(
         self,
@@ -77,6 +80,9 @@ class MainWindow(QMainWindow):
         self._media: MediaItem | None = None
         self._result_folder = self._settings.destination
         self._manual_update_check = False
+        self._explicit_exit = False
+        self._shutting_down = False
+        self._tray_notice_shown = False
         self._analysis_elapsed = QElapsedTimer()
         self._analysis_timer = QTimer(self)
         self._analysis_timer.setInterval(1000)
@@ -84,6 +90,12 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._connect_signals()
         self._load_settings()
+        self._tray = TrayIcon(self)
+        self.setWindowIcon(self._tray.icon())
+        self._tray.restore_requested.connect(self._restore_from_tray)
+        self._tray.exit_requested.connect(self._request_exit)
+        self._controller.shutdown_finished.connect(self._finish_exit)
+        self._hide_to_tray_action.setEnabled(self._tray.isSystemTrayAvailable())
         self._set_state(JobState.IDLE)
         if auto_prepare and not controller.tools_available():
             QTimer.singleShot(0, self._show_preparation)
@@ -286,6 +298,19 @@ class MainWindow(QMainWindow):
         progress_layout.addLayout(action_row)
         root.addWidget(progress_card)
         root.addStretch()
+
+        program_menu = self.menuBar().addMenu(self.tr("Программа"))
+        self._hide_to_tray_action = program_menu.addAction(self.tr("Свернуть в трей"))
+        self._hide_to_tray_action.triggered.connect(self._hide_to_tray)
+        self._tray_enabled_action = program_menu.addAction(
+            self.tr("Сворачивать в трей при закрытии и сворачивании")
+        )
+        self._tray_enabled_action.setCheckable(True)
+        self._tray_enabled_action.setChecked(self._settings.minimize_to_tray)
+        self._tray_enabled_action.toggled.connect(self._tray_preference_changed)
+        program_menu.addSeparator()
+        self._exit_action = program_menu.addAction(self.tr("Выйти"))
+        self._exit_action.triggered.connect(self._request_exit)
 
         help_menu = self.menuBar().addMenu(self.tr("Справка"))
         check_updates = QAction(self.tr("Проверить обновление yt-dlp"), self)
@@ -509,6 +534,8 @@ class MainWindow(QMainWindow):
         self._overall_progress.setValue(100)
         self._status.setText(self.tr("Готово"))
         self._set_state(JobState.COMPLETED)
+        if not self.isVisible() and not self._shutting_down:
+            self._tray.notify(self.tr("Загрузка завершена"), self.tr("Файлы сохранены."))
 
     @Slot(object)
     def _download_failed(self, value: object) -> None:
@@ -642,6 +669,8 @@ class MainWindow(QMainWindow):
         self._settings_service.save(self._settings)
 
     def _show_preparation(self) -> None:
+        if self._shutting_down:
+            return
         dialog = PreparationDialog(self._controller, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             self._status.setText(self.tr("Компоненты не подготовлены"))
@@ -653,6 +682,8 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _check_updates(self) -> None:
+        if self._shutting_down:
+            return
         if not self._controller.tools_available():
             if self._manual_update_check:
                 self._show_preparation()
@@ -662,6 +693,8 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _update_checked(self, value: object) -> None:
+        if self._shutting_down:
+            return
         self._settings = replace(
             self._settings, last_yt_dlp_check=datetime.now(UTC).isoformat()
         )
@@ -669,6 +702,7 @@ class MainWindow(QMainWindow):
         manual = self._manual_update_check
         self._manual_update_check = False
         if isinstance(value, YtDlpUpdate):
+            self._restore_from_tray()
             answer = QMessageBox.question(
                 self,
                 self.tr("Доступно обновление yt-dlp"),
@@ -712,6 +746,9 @@ class MainWindow(QMainWindow):
         self._show_error(self._coerce_error(value, "Не удалось обновить yt-dlp."))
 
     def _show_error(self, error: VideoDownloaderError) -> None:
+        if self._shutting_down:
+            return
+        self._restore_from_tray()
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle(self.tr("Ошибка"))
@@ -725,16 +762,88 @@ class MainWindow(QMainWindow):
             return value
         return VideoDownloaderError(fallback, str(value))
 
+    @Slot(bool)
+    def _tray_preference_changed(self, enabled: bool) -> None:
+        self._settings = replace(self._settings, minimize_to_tray=enabled)
+        self._settings_service.save(self._settings)
+
+    @Slot()
+    def _hide_to_tray(self) -> bool:
+        if self._shutting_down or not self._tray.can_hide_window():
+            return False
+        self._persist_settings(Path(self._folder.text()))
+        self.hide()
+        if not self._tray_notice_shown:
+            self._tray_notice_shown = True
+            self._tray.notify(
+                "VideoDownloader",
+                self.tr(
+                    "Программа продолжает работать в трее. Нажмите значок, чтобы "
+                    "открыть окно. Для завершения выберите «Выйти» в меню значка."
+                ),
+            )
+        return True
+
+    @Slot()
+    def _restore_from_tray(self) -> None:
+        if self._shutting_down:
+            return
+        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange and self.isMinimized():
+            QTimer.singleShot(0, self._hide_minimized_window)
+
+    def _hide_minimized_window(self) -> None:
+        # A queued check avoids re-entering Qt's window-state change handler.
+        if self.isMinimized() and self._settings.minimize_to_tray:
+            self._hide_to_tray()
+
+    @Slot()
+    def _request_exit(self) -> None:
+        if not self._shutting_down:
+            self._explicit_exit = True
+            self.close()
+
+    @Slot()
+    def _finish_exit(self) -> None:
+        if self._shutting_down:
+            self._tray.hide()
+            self.quit_requested.emit()
+
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self._shutting_down:
+            event.accept()
+            return
+        if (
+            not self._explicit_exit
+            and self._settings.minimize_to_tray
+            and self._hide_to_tray()
+        ):
+            event.ignore()
+            return
         if self._state.state in {JobState.DOWNLOADING, JobState.POST_PROCESSING}:
+            self._restore_from_tray()
             answer = QMessageBox.question(
                 self,
                 self.tr("Завершить загрузку?"),
                 self.tr("Активная загрузка будет отменена."),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
             if answer != QMessageBox.StandardButton.Yes:
+                self._explicit_exit = False
                 event.ignore()
                 return
         self._persist_settings(Path(self._folder.text()))
+        self._shutting_down = True
+        self._analysis_timer.stop()
+        self.setEnabled(False)
+        self._tray.menu.setEnabled(False)
+        self._tray.setToolTip(self.tr("VideoDownloader — завершение работы…"))
         self._controller.shutdown()
         event.accept()

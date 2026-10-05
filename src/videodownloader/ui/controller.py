@@ -43,6 +43,7 @@ class AppController(QObject):
     update_progress = Signal(str, int, int)
     update_installed = Signal(str)
     update_install_failed = Signal(object)
+    shutdown_finished = Signal()
 
     def __init__(self, paths: AppPaths, tool_manager: ToolManager | None = None) -> None:
         super().__init__()
@@ -51,6 +52,7 @@ class AppController(QObject):
         self._threads: set[QThread] = set()
         self._workers: set[QObject] = set()
         self._download_worker: DownloadWorker | None = None
+        self._shutting_down = False
 
     def tools_available(self) -> bool:
         return self.tools.all_available()
@@ -120,10 +122,15 @@ class AppController(QObject):
             self._download_worker.cancel()
 
     def shutdown(self) -> None:
+        """Cancel downloads and let workers finish before the event loop exits."""
+        if self._shutting_down:
+            return
+        self._shutting_down = True
         self.cancel_download()
         for thread in tuple(self._threads):
             thread.quit()
-            thread.wait(5000)
+        if not self._threads:
+            self.shutdown_finished.emit()
 
     def _launch(
         self,
@@ -136,6 +143,9 @@ class AppController(QObject):
         ),
         terminal_signals: tuple[SignalInstance, ...],
     ) -> None:
+        if self._shutting_down:
+            worker.deleteLater()
+            return
         thread = QThread(self)
         self._threads.add(thread)
         self._workers.add(worker)
@@ -151,6 +161,8 @@ class AppController(QObject):
     def _release(self, thread: QThread, worker: QObject) -> None:
         self._threads.discard(thread)
         self._workers.discard(worker)
+        if self._shutting_down and not self._threads:
+            self.shutdown_finished.emit()
 
     def _clear_download_worker(self) -> None:
         self._download_worker = None

@@ -15,9 +15,14 @@ def main() -> int:
     QCoreApplication.setOrganizationName("VideoDownloader")
     QCoreApplication.setApplicationName("VideoDownloader")
     application = QApplication.instance() or QApplication([])
+    assert isinstance(application, QApplication)
+    # Closing the window must not stop background downloads or active workers.
+    application.setQuitOnLastWindowClosed(False)
     paths, settings = bootstrap_services()
     controller = AppController(paths)
     window = MainWindow(controller, settings)
+    window.quit_requested.connect(application.quit)
+    application.setWindowIcon(window.windowIcon())
     window.show()
     return application.exec()
 

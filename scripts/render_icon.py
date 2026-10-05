@@ -12,7 +12,7 @@ from PySide6.QtSvg import QSvgRenderer
 
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
-    source = root / "assets" / "icon.svg"
+    source = root / "src" / "videodownloader" / "resources" / "icon.svg"
     renderer = QSvgRenderer(str(source))
     if not renderer.isValid():
         raise RuntimeError(f"Invalid SVG icon: {source}")

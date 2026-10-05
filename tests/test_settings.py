@@ -13,6 +13,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         quality=Quality.UHD_2160,
         container=Container.MKV,
         audio_only=True,
+        minimize_to_tray=False,
         cookie_browser=CookieBrowser.FIREFOX,
         create_playlist_folder=False,
     )
@@ -89,3 +90,16 @@ def test_invalid_audio_only_setting_defaults_to_video_mode(tmp_path: Path) -> No
     loaded = AppSettings.from_dict({"audio_only": "true"}, tmp_path)
 
     assert loaded.audio_only is False
+
+
+def test_legacy_settings_enable_tray_without_resetting_options(tmp_path: Path) -> None:
+    loaded = AppSettings.from_dict({"audio_only": True}, tmp_path)
+
+    assert loaded.minimize_to_tray is True
+    assert loaded.audio_only is True
+
+
+def test_invalid_tray_setting_uses_default(tmp_path: Path) -> None:
+    loaded = AppSettings.from_dict({"minimize_to_tray": "false"}, tmp_path)
+
+    assert loaded.minimize_to_tray is True
