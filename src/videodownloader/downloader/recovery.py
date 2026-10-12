@@ -6,7 +6,11 @@ import re
 
 
 def is_transient_network_error(detail: str) -> bool:
-    lowered = detail.casefold()
+    # stderr may contain an earlier failed attempt followed by a different
+    # terminal error. Decide from the last ERROR block, not stale history.
+    errors = list(re.finditer(r"(?:^|\n)\s*ERROR:\s*", detail, re.IGNORECASE))
+    terminal = detail[errors[-1].end() :] if errors else detail
+    lowered = terminal.casefold()
     permanent = (
         "not a bot",
         "sign in",
@@ -32,6 +36,17 @@ def is_transient_network_error(detail: str) -> bool:
         return False
     if re.search(r"http (?:error |status )?(?:429|5\d\d)\b", lowered):
         return True
+    # Numeric socket errors are stable even when Windows localizes their text.
+    if re.search(
+        r"\b(?:winerror|errno)\s+(?:10050|10051|10052|10053|10054|10060|10061|10064|10065|11001|11002|1231)\b",
+        lowered,
+    ):
+        return True
+    curl_error = re.search(r"\bcurl:\s*\((\d+)\)", lowered)
+    if curl_error:
+        # Only DNS, connection, timeout and interrupted-transfer errors.
+        # In particular, never retry disk writes or certificate failures.
+        return int(curl_error[1]) in {5, 6, 7, 16, 18, 28, 52, 55, 56, 92}
     return any(
         token in lowered
         for token in (
@@ -50,15 +65,15 @@ def is_transient_network_error(detail: str) -> bool:
             "name or service not known",
             "getaddrinfo failed",
             "unable to resolve",
+            "could not resolve host",
+            "failed to resolve",
+            "failed to establish a new connection",
+            "no route to host",
             "nodename nor servname",
             "incomplete read",
             "incompleteread",
             "content too short",
             "bytes missing",
-            "winerror 10051",
-            "winerror 10054",
-            "winerror 10060",
-            "errno 11001",
-            "errno 11002",
+            "did not get any data blocks",
         )
     )

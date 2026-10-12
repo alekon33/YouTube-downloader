@@ -95,6 +95,8 @@ class MainWindow(QMainWindow):
         self._result_folder = self._settings.destination
         self._manual_update_check = False
         self._download_cancel_requested = False
+        self._download_retry_available = False
+        self._download_error_box: QMessageBox | None = None
         self._explicit_exit = False
         self._shutting_down = False
         self._tray_notice_shown = False
@@ -388,6 +390,9 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _start_analysis(self) -> None:
+        self._download_retry_available = False
+        if self._download_error_box is not None:
+            self._download_error_box.close()
         url = self._url.text().strip()
         if not url:
             return
@@ -519,6 +524,9 @@ class MainWindow(QMainWindow):
         self._overall_progress.setValue(0)
         self._telemetry.setText("—")
         self._download_cancel_requested = False
+        self._download_retry_available = False
+        if self._download_error_box is not None:
+            self._download_error_box.close()
         self._set_state(JobState.DOWNLOADING)
         self._status.setText(self.tr("Запуск загрузки…"))
         self._controller.download(self._media, options)
@@ -529,6 +537,7 @@ class MainWindow(QMainWindow):
             not isinstance(value, DownloadProgress)
             or self._shutting_down
             or self._download_cancel_requested
+            or self._state.state not in _ACTIVE_DOWNLOAD_STATES
         ):
             return
         if self._state.state in {JobState.PAUSING, JobState.PAUSED} and value.stage in {
@@ -577,6 +586,8 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _download_complete(self, result: object) -> None:
+        self._download_cancel_requested = False
+        self._download_retry_available = False
         self._result_folder = openable_folder(result, Path(self._folder.text()))
         self._current_progress.setValue(100)
         self._overall_progress.setValue(100)
@@ -587,16 +598,66 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _download_failed(self, value: object) -> None:
+        if self._shutting_down:
+            return
         error = self._coerce_error(value, "Не удалось скачать файл.")
+        self._download_cancel_requested = False
         self._status.setText(self.tr("Ошибка"))
         self._set_state(JobState.FAILED)
-        self._show_error(error)
         self._state.reset(ready=self._media is not None)
+        self._download_retry_available = self._media is not None
         self._refresh_controls()
+        self._show_download_error(error)
+
+    def _show_download_error(self, error: VideoDownloaderError) -> None:
+        """A terminal failure must not hide usable retry controls behind a modal loop."""
+        self._restore_from_tray()
+        if self._download_error_box is not None:
+            self._download_error_box.close()
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(self.tr("Ошибка загрузки"))
+        box.setText(error.user_message)
+        box.setDetailedText(error.detail)
+        buttons = QMessageBox.StandardButton.Close
+        if self._download_retry_available:
+            buttons |= QMessageBox.StandardButton.Retry
+            box.setInformativeText(
+                self.tr(
+                    "Можно повторить загрузку без закрытия программы. Недокачанные файлы сохранены."
+                )
+            )
+        box.setStandardButtons(buttons)
+        close_button = box.button(QMessageBox.StandardButton.Close)
+        if close_button is not None:
+            close_button.setText(self.tr("Закрыть"))
+        retry_button = box.button(QMessageBox.StandardButton.Retry)
+        if retry_button is not None:
+            retry_button.setText(self.tr("Повторить"))
+        box.setDefaultButton(QMessageBox.StandardButton.Close)
+        box.setWindowModality(Qt.WindowModality.NonModal)
+        box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._download_error_box = box
+
+        def finished(result: int) -> None:
+            if self._download_error_box is box:
+                self._download_error_box = None
+            if (
+                result == QMessageBox.StandardButton.Retry
+                and self._download_retry_available
+                and self._state.state is JobState.READY
+                and not self._shutting_down
+            ):
+                self._start_download()
+
+        box.finished.connect(finished)
+        box.show()
 
     @Slot(object)
     def _download_cancelled(self, value: object) -> None:
         del value
+        self._download_cancel_requested = False
+        self._download_retry_available = False
         self._status.setText(self.tr("Загрузка отменена"))
         self._set_state(JobState.CANCELLED)
 
@@ -610,6 +671,9 @@ class MainWindow(QMainWindow):
     @Slot()
     def _toggle_pause(self) -> None:
         if self._download_cancel_requested:
+            return
+        if self._state.state is JobState.READY and self._download_retry_available:
+            self._start_download()
             return
         if self._state.state is JobState.PAUSED:
             self._controller.resume_download()
@@ -666,13 +730,23 @@ class MainWindow(QMainWindow):
         self._download.setText(self.tr("Скачать аудио") if audio_only else self.tr("Скачать"))
         self._download.setEnabled(editable and self._media is not None)
         self._cancel.setEnabled(active and not self._download_cancel_requested)
-        self._pause.setText(self.tr("Продолжить") if state is JobState.PAUSED else self.tr("Пауза"))
+        retry = self._download_retry_available and state is JobState.READY
+        self._pause.setText(
+            self.tr("Повторить")
+            if retry
+            else (self.tr("Продолжить") if state is JobState.PAUSED else self.tr("Пауза"))
+        )
         self._pause.setEnabled(
             not self._download_cancel_requested
-            and state in {JobState.DOWNLOADING, JobState.PAUSED, JobState.WAITING_FOR_CONNECTION}
+            and (
+                retry
+                or state in {JobState.DOWNLOADING, JobState.PAUSED, JobState.WAITING_FOR_CONNECTION}
+            )
         )
         self._pause.setToolTip(
-            self.tr("Пауза недоступна во время объединения дорожек или обработки аудио.")
+            self.tr("Повторить загрузку с учётом недокачанных файлов.")
+            if retry
+            else self.tr("Пауза недоступна во время объединения дорожек или обработки аудио.")
             if state is JobState.POST_PROCESSING
             else self.tr("Пауза сохраняет недокачанные данные.")
         )

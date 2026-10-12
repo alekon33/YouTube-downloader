@@ -50,6 +50,7 @@ class MediaServer(ThreadingHTTPServer):
         self.disconnect_path: str | None = None
         self.extension = "mp4"
         self.content_type = "video/mp4"
+        self.offline_status = 503
 
     @property
     def url(self) -> str:
@@ -70,7 +71,10 @@ class MediaHandler(BaseHTTPRequestHandler):
         server = self.server
         assert isinstance(server, MediaServer)
         if not server.online.is_set():
-            self.send_error(503)
+            if server.offline_status:
+                self.send_error(server.offline_status)
+            else:
+                self.connection.shutdown(socket.SHUT_RDWR)
             return
         offset = int(self.headers.get("Range", "bytes=0-").split("=")[1].split("-")[0])
         self.send_response(206 if offset else 200)
@@ -90,6 +94,9 @@ class MediaHandler(BaseHTTPRequestHandler):
         server.requests.append((self.path, offset))
         try:
             for position in range(offset, len(server.payload), 32768):
+                if not server.online.is_set():
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                    return
                 self.wfile.write(server.payload[position : position + 32768])
                 self.wfile.flush()
                 if (
@@ -381,3 +388,75 @@ def test_audio_pause_resumes_and_finishes_mp3_conversion(tmp_path: Path) -> None
                 check=True,
             )
             assert float(json.loads(result.stdout)["format"]["duration"]) >= 60
+
+
+@pytest.mark.parametrize("offline_status", [503, 0])
+def test_gui_resume_while_offline_keeps_controls_and_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    qtbot: Any,
+    offline_status: int,
+) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from videodownloader.models import JobState
+    from videodownloader.settings import AppPaths, SettingsService
+    from videodownloader.tools import ToolManager
+    from videodownloader.ui import AppController, MainWindow
+
+    with media_server() as server:
+        executor, _ = executor_and_job(tmp_path, server)
+        server.payload *= 2
+        server.offline_status = offline_status
+        paths = AppPaths.from_data_dir(tmp_path / "app", tmp_path / "downloads")
+        controller = AppController(paths, ToolManager(executor.ffmpeg_directory))
+        window = MainWindow(controller, SettingsService(paths), auto_prepare=False)
+
+        def before_close(widget: MainWindow) -> None:
+            widget._state.reset()
+            widget._explicit_exit = True
+            widget._tray.hide()
+
+        qtbot.addWidget(window, before_close_func=before_close)
+        errors: list[object] = []
+        controller.download_failed.connect(errors.append)
+        window._set_state(JobState.ANALYZING)
+        window._analysis_complete(MediaItem(server.url, "Local media", MediaKind.VIDEO))
+        window._quality.setCurrentIndex(window._quality.findData(Quality.BEST))
+        window.show()
+        window._start_download()
+        try:
+            qtbot.waitUntil(
+                lambda: window._current_progress.value() >= 5 or bool(errors), timeout=15000
+            )
+            assert not errors
+            qtbot.mouseClick(window._pause, Qt.MouseButton.LeftButton)
+            qtbot.waitUntil(lambda: window._state.state is JobState.PAUSED, timeout=3000)
+            server.online.clear()
+            # Drop the old socket while its reader is suspended.
+            qtbot.wait(150)
+            qtbot.mouseClick(window._pause, Qt.MouseButton.LeftButton)
+            qtbot.waitUntil(
+                lambda: window._state.state is JobState.WAITING_FOR_CONNECTION or bool(errors),
+                timeout=15000,
+            )
+            assert not errors
+            assert window._cancel.isEnabled()
+            assert window._pause.isEnabled()
+            assert controller._download_worker is not None
+            assert QApplication.activeModalWidget() is None
+            qtbot.wait(300)
+            assert not errors
+            server.online.set()
+            with qtbot.waitSignal(controller.download_succeeded, timeout=35000):
+                pass
+            assert window._state.state is JobState.COMPLETED
+            assert not errors
+            assert (paths.downloads_dir / "sample.mp4").read_bytes() == server.payload
+            assert any(offset > 0 for offset in server.offsets)
+            qtbot.waitUntil(lambda: not controller._threads)
+        finally:
+            server.online.set()
+            controller.cancel_download()
+            qtbot.waitUntil(lambda: not controller._threads, timeout=15000)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, Signal, SignalInstance
+from PySide6.QtCore import QObject, QThread, QTimer, Signal, SignalInstance, Slot
 
 from videodownloader.downloader import DownloadExecutor, YtDlpService
 from videodownloader.models import (
@@ -51,6 +51,8 @@ class AppController(QObject):
         self.tools = tool_manager or ToolManager(paths.tools_dir)
         self._threads: set[QThread] = set()
         self._workers: set[QObject] = set()
+        self._thread_workers: dict[QThread, QObject] = {}
+        self._finishing_threads: set[QThread] = set()
         self._download_worker: DownloadWorker | None = None
         self._shutting_down = False
 
@@ -109,12 +111,10 @@ class AppController(QObject):
         worker = DownloadWorker(executor, job)
         self._download_worker = worker
         worker.progress.connect(self.download_progress)
-        worker.succeeded.connect(self.download_succeeded)
-        worker.failed.connect(self.download_failed)
-        worker.cancelled.connect(self.download_cancelled)
+        worker.succeeded.connect(self._download_succeeded)
+        worker.failed.connect(self._download_failed)
+        worker.cancelled.connect(self._download_cancelled)
         terminal_signals = (worker.succeeded, worker.failed, worker.cancelled)
-        for signal in terminal_signals:
-            signal.connect(self._clear_download_worker)
         self._launch(worker, terminal_signals)
 
     def cancel_download(self) -> None:
@@ -156,14 +156,38 @@ class AppController(QObject):
         thread = QThread(self)
         self._threads.add(thread)
         self._workers.add(worker)
+        self._thread_workers[thread] = worker
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         for signal in terminal_signals:
             signal.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(lambda: self._release(thread, worker))
+        thread.finished.connect(self._thread_finished)
         thread.start()
+
+    @Slot()
+    def _thread_finished(self) -> None:
+        thread = self.sender()
+        if isinstance(thread, QThread):
+            self._finishing_threads.add(thread)
+        self._release_finished_threads()
+
+    @Slot()
+    def _release_finished_threads(self) -> None:
+        pending = False
+        for thread in tuple(self._finishing_threads):
+            # finished can reach the GUI before native thread/TLS cleanup ends.
+            # Retain Python wrappers until wait(0) confirms that teardown is
+            # complete; dropping them earlier can race worker.deleteLater.
+            if not thread.wait(0):
+                pending = True
+                continue
+            worker = self._thread_workers.pop(thread)
+            self._finishing_threads.discard(thread)
+            thread.deleteLater()
+            self._release(thread, worker)
+        if pending:
+            QTimer.singleShot(10, self._release_finished_threads)
 
     def _release(self, thread: QThread, worker: QObject) -> None:
         self._threads.discard(thread)
@@ -171,8 +195,22 @@ class AppController(QObject):
         if self._shutting_down and not self._threads:
             self.shutdown_finished.emit()
 
-    def _clear_download_worker(self) -> None:
+    @Slot(object)
+    def _download_succeeded(self, result: object) -> None:
         self._download_worker = None
+        self.download_succeeded.emit(result)
+
+    @Slot(object)
+    def _download_failed(self, error: object) -> None:
+        # Clear ownership before exposing Retry or entering any GUI callbacks.
+        # A delayed cleanup must never clear a replacement download worker.
+        self._download_worker = None
+        self.download_failed.emit(error)
+
+    @Slot(object)
+    def _download_cancelled(self, error: object) -> None:
+        self._download_worker = None
+        self.download_cancelled.emit(error)
 
 
 def openable_folder(result: object, destination: Path) -> Path:

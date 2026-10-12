@@ -31,6 +31,14 @@ from videodownloader.models import (
         "ERROR: IncompleteRead(1024 bytes read, 8192 more expected)",
         "ERROR: content too short",
         "ERROR: Temporary failure in name resolution",
+        "ERROR: Unable to download: [WinError 10050] Операция на сокете обнаружила, что сеть отключена",
+        "ERROR: [WinError 10053] Программное обеспечение разорвало установленное соединение",
+        "ERROR: [WinError 10065] Нет маршрута к узлу",
+        "ERROR: curl: (6) Could not resolve host: example.test",
+        "ERROR: curl: (7) Failed to connect to example.test",
+        "ERROR: curl: (18) Transferred a partial file",
+        "ERROR: curl: (56) Failure when receiving data from the peer",
+        "ERROR: Did not get any data blocks",
     ],
 )
 def test_transport_failures_are_recoverable(detail: str) -> None:
@@ -50,10 +58,22 @@ def test_transport_failures_are_recoverable(detail: str) -> None:
         "ERROR: unsupported URL",
         "ERROR: Requested format is not available",
         "ERROR: authentication failed after a connection timeout",
+        "ERROR: curl: (23) Failed writing received data to disk",
+        "ERROR: curl: (60) SSL certificate problem",
     ],
 )
 def test_permanent_failures_are_not_retried(detail: str) -> None:
     assert not is_transient_network_error(detail)
+
+
+def test_last_error_is_not_overridden_by_previous_attempt_history() -> None:
+    assert is_transient_network_error(
+        "ERROR: HTTP Error 403\nERROR: [WinError 10050] Сеть отключена"
+    )
+    assert not is_transient_network_error("ERROR: timed out\nERROR: HTTP Error 403")
+    assert not is_transient_network_error(
+        "ERROR: timed out\nERROR: Requested format is not available"
+    )
 
 
 def make_job(tmp_path: Path) -> DownloadJob:

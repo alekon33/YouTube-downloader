@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox, QSystemTrayIcon
 from pytestqt.qtbot import QtBot
 
+from videodownloader.core.exceptions import DownloadError
 from videodownloader.models import DownloadProgress, DownloadStage, JobState, MediaItem, MediaKind
 from videodownloader.settings import AppPaths, SettingsService
 from videodownloader.ui import AppController, MainWindow
@@ -125,6 +126,72 @@ def test_cancel_on_pause_ignores_late_progress(
     assert window._status.text() == "Отмена…"
     window._download_cancelled(None)
     assert window._state.state is JobState.CANCELLED
+
+
+def test_terminal_error_is_nonmodal_and_allows_retry_without_closing_window(
+    window: MainWindow,
+    monkeypatch: pytest.MonkeyPatch,
+    qtbot: QtBot,
+) -> None:
+    modal_calls: list[bool] = []
+    monkeypatch.setattr(QMessageBox, "exec", lambda *args: modal_calls.append(True) or 0)
+    window._update_progress(DownloadProgress(DownloadStage.PAUSED, percent=64))
+    window._update_progress(DownloadProgress(DownloadStage.RESUMING))
+    window._download_failed(
+        DownloadError("Не удалось подключиться к сайту.", "Unknown transport error")
+    )
+
+    assert modal_calls == []
+    assert window._state.state is JobState.READY
+    assert window._download.isEnabled()
+    assert window._pause.isEnabled()
+    assert window._pause.text() == "Повторить"
+    assert window._url.isEnabled()
+    assert window._current_progress.value() == 64
+    box = window.findChild(QMessageBox)
+    assert box is not None
+    qtbot.addWidget(box)
+    assert box.windowModality() is Qt.WindowModality.NonModal
+    assert box.standardButtons() & QMessageBox.StandardButton.Retry
+    captured: list[object] = []
+    monkeypatch.setattr(window._controller, "download", lambda *args: captured.append(args))
+    qtbot.mouseClick(window._pause, Qt.MouseButton.LeftButton)
+    assert len(captured) == 1
+    assert window._state.state is JobState.DOWNLOADING
+
+
+def test_late_progress_after_terminal_failure_does_not_lock_ready_controls(
+    window: MainWindow,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(QMessageBox, "exec", lambda *args: 0)
+    window._download_failed(DownloadError("Ошибка", "permanent failure"))
+    window._controller.download_progress.emit(
+        DownloadProgress(DownloadStage.WAITING_FOR_CONNECTION)
+    )
+    window._controller.download_progress.emit(DownloadProgress(DownloadStage.VIDEO, percent=64))
+    assert window._state.state is JobState.READY
+    assert window._url.isEnabled()
+    assert window._download.isEnabled()
+
+
+def test_error_dialog_retry_starts_new_download_once(
+    window: MainWindow,
+    monkeypatch: pytest.MonkeyPatch,
+    qtbot: QtBot,
+) -> None:
+    captured: list[object] = []
+    monkeypatch.setattr(window._controller, "download", lambda *args: captured.append(args))
+    window._download_failed(DownloadError("Ошибка", "Unknown transport failure"))
+    box = window._download_error_box
+    assert box is not None
+    button = box.button(QMessageBox.StandardButton.Retry)
+    assert button is not None
+    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+    assert len(captured) == 1
+    assert window._state.state is JobState.DOWNLOADING
+    assert window._download_error_box is None
+    assert not window._download_retry_available
 
 
 @pytest.mark.parametrize("stage", [DownloadStage.PAUSED, DownloadStage.WAITING_FOR_CONNECTION])

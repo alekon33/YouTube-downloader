@@ -15,6 +15,7 @@ from videodownloader.downloader import DownloadExecutor, YtDlpService
 from videodownloader.models import DownloadJob, DownloadProgress
 from videodownloader.tools import ToolManager
 from videodownloader.tools.releases import YtDlpReleaseClient, YtDlpUpdate
+from videodownloader.utils.redaction import redact_sensitive_text
 
 
 class AnalysisWorker(QObject):
@@ -62,6 +63,9 @@ class DownloadWorker(QObject):
         except DownloadCancelled as error:
             self.cancelled.emit(error)
         except VideoDownloaderError as error:
+            logging.getLogger(__name__).warning(
+                "Download failed: %s", redact_sensitive_text(error.detail)
+            )
             self.failed.emit(error)
         except Exception as error:
             logging.getLogger(__name__).exception("Unexpected download error")
