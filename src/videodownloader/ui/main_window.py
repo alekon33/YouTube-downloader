@@ -42,6 +42,7 @@ from videodownloader.models import (
     Quality,
     parse_playlist_intervals,
 )
+from videodownloader.models.session import SavedPlaylist
 from videodownloader.services.tool_updates import update_check_due
 from videodownloader.settings import SettingsService
 from videodownloader.tools.releases import YtDlpUpdate
@@ -92,6 +93,7 @@ class MainWindow(QMainWindow):
         self._settings = settings_service.load()
         self._state = AppStateMachine()
         self._media: MediaItem | None = None
+        self._playlist_session: SavedPlaylist | None = None
         self._result_folder = self._settings.destination
         self._manual_update_check = False
         self._download_cancel_requested = False
@@ -153,6 +155,21 @@ class MainWindow(QMainWindow):
         self._analyze = QPushButton(self.tr("Анализировать"))
         link_row.addWidget(self._analyze)
         link_layout.addLayout(link_row)
+        restore_row = QHBoxLayout()
+        self._restore_playlist = QPushButton(self.tr("Докачать плейлист из папки"))
+        self._restore_playlist.setObjectName("secondary")
+        self._restore_playlist.setAccessibleDescription(
+            self.tr(
+                "Выбрать папку с сохранённым заданием и продолжить плейлист после перезапуска программы."
+            )
+        )
+        self._new_download = QPushButton(self.tr("Новая загрузка"))
+        self._new_download.setObjectName("secondary")
+        self._new_download.hide()
+        restore_row.addWidget(self._restore_playlist)
+        restore_row.addStretch()
+        restore_row.addWidget(self._new_download)
+        link_layout.addLayout(restore_row)
         root.addWidget(link_card)
 
         self._info_card = QFrame()
@@ -348,6 +365,8 @@ class MainWindow(QMainWindow):
         self._url.textChanged.connect(self._refresh_controls)
         self._url.returnPressed.connect(self._start_analysis)
         self._analyze.clicked.connect(self._start_analysis)
+        self._restore_playlist.clicked.connect(self._choose_saved_playlist)
+        self._new_download.clicked.connect(self._reset_saved_playlist)
         self._browse.clicked.connect(self._choose_folder)
         self._download.clicked.connect(self._start_download)
         self._cancel.clicked.connect(self._cancel_download)
@@ -357,6 +376,8 @@ class MainWindow(QMainWindow):
         self._cookie_browser.currentIndexChanged.connect(self._cookie_browser_changed)
         self._controller.analysis_succeeded.connect(self._analysis_complete)
         self._controller.analysis_failed.connect(self._analysis_failed)
+        self._controller.playlist_restored.connect(self._playlist_restored)
+        self._controller.playlist_restore_failed.connect(self._analysis_failed)
         self._controller.download_progress.connect(self._update_progress)
         self._controller.download_succeeded.connect(self._download_complete)
         self._controller.download_failed.connect(self._download_failed)
@@ -390,6 +411,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _start_analysis(self) -> None:
+        self._playlist_session = None
         self._download_retry_available = False
         if self._download_error_box is not None:
             self._download_error_box.close()
@@ -406,6 +428,7 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _analysis_complete(self, value: object) -> None:
+        self._playlist_session = None
         self._stop_analysis_progress()
         if not isinstance(value, MediaItem):
             self._analysis_failed(VideoDownloaderError("Получены некорректные данные."))
@@ -488,6 +511,9 @@ class MainWindow(QMainWindow):
     def _start_download(self) -> None:
         if self._media is None:
             return
+        if self._playlist_session is not None:
+            self._start_saved_playlist()
+            return
         try:
             playlist_intervals = (
                 parse_playlist_intervals(self._playlist_intervals.text(), self._media.item_count)
@@ -530,6 +556,115 @@ class MainWindow(QMainWindow):
         self._set_state(JobState.DOWNLOADING)
         self._status.setText(self.tr("Запуск загрузки…"))
         self._controller.download(self._media, options)
+
+    @Slot()
+    def _choose_saved_playlist(self) -> None:
+        if self._state.state is JobState.ANALYZING or self._state.state in _ACTIVE_DOWNLOAD_STATES:
+            return
+        selected = QFileDialog.getExistingDirectory(
+            self, self.tr("Выберите папку с сохранённым плейлистом"), self._folder.text()
+        )
+        if not selected:
+            return
+        if self._download_error_box is not None:
+            self._download_error_box.close()
+        self._playlist_session = None
+        self._media = None
+        self._state.reset()
+        self._start_analysis_progress()
+        self._set_state(JobState.ANALYZING)
+        self._status.setText(self.tr("Проверяем сохранённое задание…"))
+        self._controller.restore_playlist(Path(selected))
+
+    @Slot(object)
+    def _playlist_restored(self, value: object) -> None:
+        self._stop_analysis_progress()
+        if not isinstance(value, SavedPlaylist):
+            self._analysis_failed(
+                VideoDownloaderError("Получены некорректные данные сохранённого задания.")
+            )
+            return
+        self._playlist_session = value
+        self._result_folder = value.folder
+        self._media = value.media()
+        self._download_retry_available = False
+        self._url.setText(value.source_url)
+        self._folder.setText(str(value.folder))
+        self._set_combo_data(self._quality, value.options.quality)
+        self._set_combo_data(self._container, value.options.container)
+        self._audio_only.setChecked(value.options.audio_only)
+        self._number_items.setChecked(value.options.number_playlist_items)
+        self._playlist_folder.setChecked(False)
+        self._archive.setChecked(value.options.use_download_archive)
+        self._playlist_intervals.setText(
+            ", ".join(
+                str(i.start) if i.end == i.start else f"{i.start}–{i.end or ''}"
+                for i in value.options.playlist_intervals
+            )
+        )
+        self._media_title.setText(value.title)
+        ready = value.completed_count
+        total = len(value.items)
+        self._media_details.setText(
+            self.tr(
+                "Сохранённое задание · готово {ready} из {total} · осталось {remaining}"
+            ).format(ready=ready, total=total, remaining=total - ready)
+        )
+        self._overall_progress.setValue(round(ready / total * 100))
+        self._status.setText(
+            self.tr("Готово к продолжению") if ready < total else self.tr("Все файлы уже скачаны")
+        )
+        self._set_state(JobState.READY)
+        if ready < total:
+            answer = QMessageBox.question(
+                self,
+                self.tr("Продолжить плейлист?"),
+                self.tr(
+                    "{title}\nГотово {ready} из {total}, осталось {remaining}.\nПродолжить с сохранёнными параметрами?"
+                ).format(title=value.title, ready=ready, total=total, remaining=total - ready),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._start_saved_playlist()
+
+    def _start_saved_playlist(self) -> None:
+        session = self._playlist_session
+        if (
+            session is None
+            or not session.pending_items
+            or self._state.state not in {JobState.READY, JobState.CANCELLED, JobState.COMPLETED}
+        ):
+            return
+        self._current_progress.setValue(0)
+        self._overall_progress.setValue(round(session.completed_count / len(session.items) * 100))
+        self._download_cancel_requested = self._download_retry_available = False
+        if self._download_error_box is not None:
+            self._download_error_box.close()
+        self._set_state(JobState.DOWNLOADING)
+        self._status.setText(self.tr("Продолжаем сохранённый плейлист…"))
+        self._controller.resume_playlist(session, self._selected_cookie_browser())
+
+    @Slot()
+    def _reset_saved_playlist(self) -> None:
+        if self._state.state in _ACTIVE_DOWNLOAD_STATES:
+            return
+        self._playlist_session = None
+        self._media = None
+        self._download_retry_available = False
+        if self._download_error_box is not None:
+            self._download_error_box.close()
+        self._result_folder = self._settings.destination
+        self._current_progress.setValue(0)
+        self._overall_progress.setValue(0)
+        self._telemetry.setText("—")
+        self._state.reset()
+        self._url.clear()
+        self._load_settings()
+        self._media_title.setText(self.tr("Ссылка ещё не проанализирована"))
+        self._media_details.setText(self.tr("Здесь появятся длительность и доступные качества"))
+        self._status.setText(self.tr("Готово к работе"))
+        self._refresh_controls()
 
     @Slot(object)
     def _update_progress(self, value: object) -> None:
@@ -694,16 +829,21 @@ class MainWindow(QMainWindow):
         analyzing = state is JobState.ANALYZING
         active = state in _ACTIVE_DOWNLOAD_STATES
         editable = not analyzing and not active
+        restored = self._playlist_session is not None
+        parameters_editable = editable and not restored
         audio_only = self._audio_only.isChecked()
         is_playlist = self._media is not None and self._media.is_playlist
-        self._playlist_options.setVisible(is_playlist and editable)
+        self._playlist_options.setVisible(is_playlist and parameters_editable)
         self._playlist_status.setVisible(is_playlist and active)
-        self._overall_label.setVisible(is_playlist and active)
-        self._overall_progress.setVisible(is_playlist and active)
-        self._url.setEnabled(editable)
-        self._analyze.setEnabled(editable and bool(self._url.text().strip()))
-        self._audio_only.setEnabled(editable)
-        video_options_enabled = editable and not audio_only
+        self._overall_label.setVisible(is_playlist and (active or restored))
+        self._overall_progress.setVisible(is_playlist and (active or restored))
+        self._restore_playlist.setEnabled(editable)
+        self._new_download.setVisible(restored)
+        self._new_download.setEnabled(editable)
+        self._url.setEnabled(parameters_editable)
+        self._analyze.setEnabled(parameters_editable and bool(self._url.text().strip()))
+        self._audio_only.setEnabled(parameters_editable)
+        video_options_enabled = parameters_editable and not audio_only
         for video_widget in (
             self._quality_label,
             self._quality,
@@ -716,19 +856,30 @@ class MainWindow(QMainWindow):
             self._browse,
             self._cookie_browser,
         ):
-            editable_widget.setEnabled(editable)
+            editable_widget.setEnabled(
+                parameters_editable if editable_widget is not self._cookie_browser else editable
+            )
         for playlist_widget in (
             self._number_items,
             self._playlist_folder,
             self._playlist_intervals,
             self._archive,
         ):
-            playlist_widget.setEnabled(editable and is_playlist)
+            playlist_widget.setEnabled(parameters_editable and is_playlist)
         self._number_items.setText(
             self.tr("Нумеровать треки") if audio_only else self.tr("Нумеровать видео")
         )
         self._download.setText(self.tr("Скачать аудио") if audio_only else self.tr("Скачать"))
-        self._download.setEnabled(editable and self._media is not None)
+        if restored:
+            self._download.setText(self.tr("Продолжить плейлист"))
+        self._download.setEnabled(
+            editable
+            and self._media is not None
+            and (
+                not restored
+                or bool(self._playlist_session and self._playlist_session.pending_items)
+            )
+        )
         self._cancel.setEnabled(active and not self._download_cancel_requested)
         retry = self._download_retry_available and state is JobState.READY
         self._pause.setText(

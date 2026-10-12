@@ -25,6 +25,8 @@ from videodownloader.models import (
     DownloadStage,
     JobState,
 )
+from videodownloader.services.playlist_lock import PlaylistFolderLock
+from videodownloader.services.playlist_sessions import PlaylistSessions
 from videodownloader.utils.redaction import redact_sensitive_text
 
 ProgressCallback = Callable[[DownloadProgress], None]
@@ -66,7 +68,33 @@ class DownloadExecutor:
         job: DownloadJob,
         on_progress: ProgressCallback | None = None,
     ) -> Path | None:
+        """Own a folder lock for the whole saved job, including network waits."""
+        if job.playlist_session is not None:
+            with PlaylistFolderLock(job.playlist_session.folder):
+                return self._execute(job, on_progress)
+        return self._execute(job, on_progress)
+
+    def _execute(
+        self,
+        job: DownloadJob,
+        on_progress: ProgressCallback | None = None,
+    ) -> Path | None:
         """Keep the same job and .part files through pauses and connection loss."""
+        self._raise_if_cancelled(job)
+        session = job.playlist_session
+        if session is not None:
+            PlaylistSessions.prepare(session)
+            job.options = session.download_options(job.options.cookie_browser)
+            self._overall_percent = session.completed_count / len(session.items) * 100
+            self._last_progress = replace(
+                self._last_progress,
+                overall_percent=self._overall_percent,
+                playlist_count=len(session.items),
+            )
+            if not session.runtime_items:
+                job.state = JobState.COMPLETED
+                self._finished = True
+                return session.folder
         arguments = build_download_arguments(
             self.executable,
             self.ffmpeg_directory,
@@ -90,6 +118,11 @@ class DownloadExecutor:
                 final_path = result or final_path
                 self._raise_if_cancelled(job)
                 if return_code == 0:
+                    if session is not None and session.pending_items:
+                        raise DownloadError(
+                            "Загрузчик завершился, но не все файлы сохранённого задания готовы.",
+                            "Incomplete saved playlist",
+                        )
                     job.state = JobState.COMPLETED
                     return final_path
                 if not is_transient_network_error(detail):
@@ -123,6 +156,7 @@ class DownloadExecutor:
     ) -> tuple[int, str, Path | None]:
         parser = ProgressParser(audio_only=job.options.audio_only)
         stderr_tail: deque[str] = deque(maxlen=80)
+        reader_errors: list[Exception] = []
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
             subprocess, "CREATE_NEW_PROCESS_GROUP", 0
         )
@@ -146,10 +180,15 @@ class DownloadExecutor:
         def read_stdout() -> None:
             if process.stdout is None:
                 return
-            for line in process.stdout:
-                progress = parser.parse(line)
-                if progress:
-                    self._publish(progress, job, on_progress)
+            try:
+                for line in process.stdout:
+                    progress = parser.parse(line)
+                    if progress:
+                        progress = self._session_progress(progress, job)
+                        self._publish(progress, job, on_progress)
+            except Exception as error:
+                reader_errors.append(error)
+                self._stop_async(process)
 
         def read_stderr() -> None:
             if process.stderr is None:
@@ -195,7 +234,36 @@ class DownloadExecutor:
                 if pipe:
                     pipe.close()
         detail = "\n".join(stderr_tail) or f"yt-dlp exited with code {return_code}"
+        if reader_errors:
+            raise reader_errors[0]
         return return_code, detail, parser.final_path
+
+    @staticmethod
+    def _session_progress(progress: DownloadProgress, job: DownloadJob) -> DownloadProgress:
+        session = job.playlist_session
+        if session is None:
+            return progress
+        ordinal = progress.playlist_index
+        if ordinal is None or not 1 <= ordinal <= len(session.runtime_items):
+            if progress.stage is DownloadStage.COMPLETED:
+                raise DownloadError(
+                    "Не удалось определить готовый элемент сохранённой очереди.",
+                    "Missing queue index",
+                )
+            return progress
+        item = session.runtime_items[ordinal - 1]
+        if progress.stage is DownloadStage.COMPLETED and progress.filename:
+            PlaylistSessions.record_completed(
+                session, ordinal, progress.filename, progress.media_id, progress.extractor
+            )
+        fraction = (progress.percent or 0) / 100 if not item.completed else 0
+        overall = min(100, (session.completed_count + fraction) / len(session.items) * 100)
+        return replace(
+            progress,
+            overall_percent=overall,
+            playlist_index=session.items.index(item) + 1,
+            playlist_count=len(session.items),
+        )
 
     def pause(self) -> bool:
         """Queue suspension; the worker performs OS calls, never the GUI thread."""

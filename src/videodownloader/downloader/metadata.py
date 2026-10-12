@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from videodownloader.core.exceptions import MetadataError
@@ -18,9 +19,13 @@ def parse_metadata(payload: dict[str, Any], source_url: str) -> MediaItem:
     )
     if is_playlist:
         entries = tuple(
-            _parse_entry(entry, source_url)
-            for entry in (raw_entries or [])
+            replace(
+                _parse_entry(entry, source_url),
+                playlist_index=_as_int(entry.get("playlist_index")) or index,
+            )
             if isinstance(entry, dict)
+            else MediaItem("", "Недоступный элемент", MediaKind.VIDEO, playlist_index=index)
+            for index, entry in enumerate(raw_entries or [], 1)
         )
         count = _as_int(payload.get("playlist_count")) or _as_int(payload.get("n_entries"))
         if count is None and entries:
@@ -55,9 +60,7 @@ def _parse_video(payload: dict[str, Any], source_url: str) -> MediaItem:
         height = _as_int(media_format.get("height"))
         if height:
             heights.add(height)
-        size = _as_int(media_format.get("filesize")) or _as_int(
-            media_format.get("filesize_approx")
-        )
+        size = _as_int(media_format.get("filesize")) or _as_int(media_format.get("filesize_approx"))
         if size:
             estimated_sizes.append(size)
     direct_size = _as_int(payload.get("filesize")) or _as_int(payload.get("filesize_approx"))
@@ -69,7 +72,9 @@ def _parse_video(payload: dict[str, Any], source_url: str) -> MediaItem:
         duration_seconds=_as_int(payload.get("duration")),
         available_heights=tuple(sorted(heights, reverse=True)),
         estimated_bytes=direct_size or (max(estimated_sizes) if estimated_sizes else None),
-        extractor=_optional_string(payload.get("extractor_key") or payload.get("extractor")),
+        extractor=_optional_string(
+            payload.get("extractor_key") or payload.get("extractor") or payload.get("ie_key")
+        ),
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from videodownloader.models import Container, CookieBrowser, DownloadJob, MediaItem, Quality
+from videodownloader.services.playlist_sessions import QUEUE_FILE
 
 # playlist_index/playlist_count describe the original playlist. The autonumber and
 # n_entries pair describes only the queue selected by --playlist-start/end/items.
@@ -18,7 +19,7 @@ POSTPROCESS_TEMPLATE = (
     'post_process:VDP_POSTPROCESS\t"started"\t%(playlist_autonumber)j\t'
     '%(n_entries)j\t"Обработка файла"'
 )
-FINISHED_TEMPLATE = "after_move:VDP_FINISHED\t%(filepath)j\t%(playlist_autonumber)j\t%(n_entries)j"
+FINISHED_TEMPLATE = "after_move:VDP_FINISHED\t%(filepath)j\t%(playlist_autonumber)j\t%(n_entries)j\t%(id)j\t%(extractor_key)j"
 
 
 def browser_cookie_arguments(browser: CookieBrowser | None) -> list[str]:
@@ -62,6 +63,8 @@ def build_download_arguments(
         output = playlist_output_template(media, options.number_playlist_items)
         if options.create_playlist_folder:
             output = f"%(playlist_title)s/{output}"
+    if job.playlist_session is not None:
+        output = "%(vd_output_id)s.%(ext)s"
 
     arguments = [
         str(executable),
@@ -130,8 +133,12 @@ def build_download_arguments(
         )
 
     if media.is_playlist:
-        arguments.append("--yes-playlist")
-        selected = getattr(job, "selected_indices", ())
+        arguments.append("--no-playlist" if job.playlist_session is not None else "--yes-playlist")
+        selected = (
+            tuple(i.original_index for i in job.playlist_session.runtime_items)
+            if job.playlist_session is not None
+            else getattr(job, "selected_indices", ())
+        )
         if selected:
             arguments.extend(["--playlist-items", ",".join(str(item) for item in selected)])
         elif options.playlist_intervals:
@@ -146,7 +153,10 @@ def build_download_arguments(
                 arguments.extend(["--playlist-start", str(options.playlist_start)])
             if options.playlist_end is not None:
                 arguments.extend(["--playlist-end", str(options.playlist_end)])
-        if options.use_download_archive:
+        # Saved jobs track completion per playlist position. A yt-dlp archive
+        # tracks IDs only and would incorrectly skip a second selected occurrence
+        # of the same video (or a missing file). The checkpoint is its archive.
+        if options.use_download_archive and job.playlist_session is None:
             archive_name = (
                 "videodownloader-audio-archive.txt"
                 if options.audio_only
@@ -168,5 +178,16 @@ def build_download_arguments(
 
     arguments.extend(browser_cookie_arguments(options.cookie_browser))
 
-    arguments.extend(["--", media.source_url])
+    if job.playlist_session is not None:
+        arguments.extend(
+            [
+                "--compat-options",
+                "filename-sanitization",
+                "--no-clean-info-json",
+                "--load-info-json",
+                str(job.playlist_session.folder / QUEUE_FILE),
+            ]
+        )
+    else:
+        arguments.extend(["--", media.source_url])
     return arguments

@@ -52,6 +52,8 @@ class ProgressParser:
                 playlist_index=index,
                 playlist_count=count,
                 filename=filename,
+                media_id=_string(fields, 4),
+                extractor=_string(fields, 5),
             )
         return None
 

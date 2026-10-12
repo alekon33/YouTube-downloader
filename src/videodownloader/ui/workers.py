@@ -13,6 +13,8 @@ from videodownloader.core.exceptions import (
 )
 from videodownloader.downloader import DownloadExecutor, YtDlpService
 from videodownloader.models import DownloadJob, DownloadProgress
+from videodownloader.services.playlist_lock import PlaylistFolderLock
+from videodownloader.services.playlist_sessions import PlaylistSessions
 from videodownloader.tools import ToolManager
 from videodownloader.tools.releases import YtDlpReleaseClient, YtDlpUpdate
 from videodownloader.utils.redaction import redact_sensitive_text
@@ -58,6 +60,15 @@ class DownloadWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
+            if self._job.media.is_playlist and self._job.playlist_session is None:
+                folder = PlaylistSessions.folder_for(self._job.media, self._job.options)
+                folder.mkdir(parents=True, exist_ok=True)
+                with PlaylistFolderLock(folder):
+                    self._job.playlist_session = PlaylistSessions.create(
+                        self._job.media,
+                        self._job.options,
+                        getattr(self._job, "selected_indices", ()),
+                    )
             result = self.executor.execute(self._job, self._emit_progress)
             self.succeeded.emit(result)
         except DownloadCancelled as error:
@@ -82,6 +93,28 @@ class DownloadWorker(QObject):
 
     def _emit_progress(self, progress: DownloadProgress) -> None:
         self.progress.emit(progress)
+
+
+class PlaylistRestoreWorker(QObject):
+    """Read/check saved files without blocking the GUI or accessing the network."""
+
+    succeeded = Signal(object)
+    failed = Signal(object)
+
+    def __init__(self, folder: Path) -> None:
+        super().__init__()
+        self._folder = folder
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.succeeded.emit(PlaylistSessions.load(self._folder))
+        except VideoDownloaderError as error:
+            self.failed.emit(error)
+        except Exception as error:
+            self.failed.emit(
+                VideoDownloaderError("Не удалось прочитать сохранённое задание.", str(error))
+            )
 
 
 class ToolPreparationWorker(QObject):

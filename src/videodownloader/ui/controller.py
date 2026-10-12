@@ -14,12 +14,14 @@ from videodownloader.models import (
     MediaItem,
     PlaylistJob,
 )
+from videodownloader.models.session import SavedPlaylist
 from videodownloader.settings import AppPaths
 from videodownloader.tools import ToolManager
 from videodownloader.tools.releases import YtDlpUpdate
 from videodownloader.ui.workers import (
     AnalysisWorker,
     DownloadWorker,
+    PlaylistRestoreWorker,
     ToolPreparationWorker,
     UpdateCheckWorker,
     UpdateInstallWorker,
@@ -31,6 +33,8 @@ class AppController(QObject):
 
     analysis_succeeded = Signal(object)
     analysis_failed = Signal(object)
+    playlist_restored = Signal(object)
+    playlist_restore_failed = Signal(object)
     download_progress = Signal(object)
     download_succeeded = Signal(object)
     download_failed = Signal(object)
@@ -97,12 +101,30 @@ class AppController(QObject):
         worker.failed.connect(self.update_install_failed)
         self._launch(worker, (worker.succeeded, worker.failed))
 
+    def restore_playlist(self, folder: Path) -> None:
+        worker = PlaylistRestoreWorker(folder)
+        worker.succeeded.connect(self.playlist_restored)
+        worker.failed.connect(self.playlist_restore_failed)
+        self._launch(worker, (worker.succeeded, worker.failed))
+
+    def resume_playlist(self, session: SavedPlaylist, browser: CookieBrowser | None = None) -> None:
+        self._download_job(
+            PlaylistJob(
+                media=session.media(),
+                options=session.download_options(browser),
+                playlist_session=session,
+            )
+        )
+
     def download(self, media: MediaItem, options: DownloadOptions) -> None:
         job: DownloadJob
         if media.is_playlist:
             job = PlaylistJob(media=media, options=options)
         else:
             job = DownloadJob(media=media, options=options)
+        self._download_job(job)
+
+    def _download_job(self, job: DownloadJob) -> None:
         executor = DownloadExecutor(
             self.tools.yt_dlp_path,
             self.tools.tools_dir,
@@ -147,6 +169,7 @@ class AppController(QObject):
             | ToolPreparationWorker
             | UpdateCheckWorker
             | UpdateInstallWorker
+            | PlaylistRestoreWorker
         ),
         terminal_signals: tuple[SignalInstance, ...],
     ) -> None:

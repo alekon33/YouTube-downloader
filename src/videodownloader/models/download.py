@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from videodownloader.models.session import SavedPlaylist
 
 from videodownloader.models.playlist import (
     PlaylistInterval,
@@ -112,6 +116,7 @@ class MediaItem:
     estimated_bytes: int | None = None
     extractor: str | None = None
     entries: tuple[MediaItem, ...] = ()
+    playlist_index: int | None = None
 
     @property
     def is_playlist(self) -> bool:
@@ -171,6 +176,8 @@ class DownloadProgress:
     playlist_count: int | None = None
     filename: str | None = None
     message: str | None = None
+    media_id: str | None = None
+    extractor: str | None = None
 
     def __post_init__(self) -> None:
         if self.percent is not None and not 0 <= self.percent <= 100:
@@ -188,6 +195,7 @@ class DownloadJob:
     job_id: UUID = field(default_factory=uuid4)
     state: JobState = JobState.READY
     error_detail: str | None = None
+    playlist_session: SavedPlaylist | None = None
 
 
 @dataclass(slots=True)
