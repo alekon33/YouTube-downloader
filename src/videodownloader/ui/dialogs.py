@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Slot
 from PySide6.QtWidgets import (
     QDialog,
     QLabel,
@@ -60,7 +60,16 @@ class PreparationDialog(QDialog):
         self._status.setText(self.tr("Подключение к источнику…"))
         self._controller.prepare_tools()
 
+    @Slot(str, int, int)
     def _on_progress(self, name: str, downloaded: int, total: int) -> None:
+        if name == "ffmpeg":
+            name = "FFmpeg"
+        elif name == "deno":
+            name = "Deno"
+        if total > 0 and downloaded >= total:
+            self._status.setText(self.tr("Проверка и установка {name}…").format(name=name))
+            self._progress.setRange(0, 0)
+            return
         self._status.setText(self.tr("Загрузка {name}…").format(name=name))
         if total > 0:
             self._progress.setRange(0, 100)
@@ -68,6 +77,7 @@ class PreparationDialog(QDialog):
         else:
             self._progress.setRange(0, 0)
 
+    @Slot(object)
     def _on_failed(self, error: VideoDownloaderError) -> None:
         self._progress.setRange(0, 100)
         self._progress.setValue(0)

@@ -134,12 +134,15 @@ class ToolPreparationWorker(QObject):
             self._manager.ensure_all(self._emit_progress)
             self.succeeded.emit()
         except VideoDownloaderError as error:
+            logging.getLogger(__name__).warning(
+                "Tool preparation failed: %s", redact_sensitive_text(error.detail)
+            )
             self.failed.emit(error)
         except Exception as error:
             logging.getLogger(__name__).exception("Tool preparation failed")
             self.failed.emit(
                 VideoDownloaderError(
-                    "Не удалось подготовить компоненты. Проверьте интернет-соединение.",
+                    "Не удалось подготовить компоненты. Подробности в журнале программы.",
                     str(error),
                 )
             )

@@ -13,6 +13,7 @@ import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 from videodownloader.core.exceptions import ToolUnavailableError
 from videodownloader.tools.manifest import ToolAsset, ToolManifest
@@ -153,11 +154,22 @@ class ToolManager:
         """Install a trusted dynamically discovered release asset."""
 
         self.tools_dir.mkdir(parents=True, exist_ok=True)
-        temporary = self._download(asset, progress)
+        try:
+            temporary = self._download(asset, progress)
+        except HTTPError as error:
+            raise ToolUnavailableError(
+                f"Сервер не выдал файл {asset.name} (HTTP {error.code}).",
+                f"Downloading {asset.name} {asset.version} from {asset.url}: HTTP {error.code}",
+            ) from error
+        except (URLError, TimeoutError) as error:
+            raise ToolUnavailableError(
+                f"Не удалось подключиться к источнику {asset.name}. Проверьте соединение.",
+                f"Downloading {asset.name} {asset.version}: {error}",
+            ) from error
         try:
             if not validate_sha256(temporary, asset.sha256):
                 raise ToolUnavailableError(
-                    "Проверка целостности компонента не пройдена.",
+                    f"Проверка целостности файла {asset.name} не пройдена.",
                     f"SHA-256 mismatch for {asset.name}",
                 )
             if asset.name == "ffmpeg" and asset.archive:
@@ -202,6 +214,8 @@ class ToolManager:
             headers={"User-Agent": "VideoDownloader/0.1 (+https://github.com/)"},
         )
         try:
+            if progress:
+                progress(asset.name, 0, None)
             with urllib.request.urlopen(request, timeout=45) as response, temporary.open("wb") as out:
                 raw_total = response.headers.get("Content-Length")
                 total = int(raw_total) if raw_total and raw_total.isdigit() else None
@@ -369,7 +383,7 @@ class ToolManager:
                 shell=False,
                 creationflags=creation_flags,
             )
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             return None
         if result.returncode != 0:
             return None
